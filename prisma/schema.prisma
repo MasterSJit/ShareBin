@@ -1,0 +1,96 @@
+// PasteShare — Prisma schema (SQLite dialect)
+// Adjusted from the Drizzle/PostgreSQL spec in the docs to fit the
+// sandbox stack (SQLite + Prisma). Enums are represented as String
+// columns with app-level validation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String
+  displayName     String?
+  role            String   @default("user") // "user" | "admin"
+  status          String   @default("active") // "pending_verification" | "active" | "suspended" | "banned"
+  emailVerifiedAt DateTime?
+  apiKey          String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  pastes       Paste[]
+  accessGrants PasteAccessGrant[]
+  auditLogs    AuditLog[]
+}
+
+model Paste {
+  id               String    @id @default(cuid())
+  ownerId          String?
+  owner            User?     @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  title            String?
+  slug             String    @unique
+  contentType      String    @default("text") // "text" | "file"
+  language         String    @default("plaintext")
+  textContent      String?
+  storageDriver    String? // "local" | "s3"
+  storageKey       String?
+  originalFileName String?
+  mimeType         String?
+  fileSizeBytes    Int?
+  visibility       String    @default("public") // "public" | "unlisted" | "private"
+  passwordHash     String?
+  burnAfterRead    Boolean   @default(false)
+  isBurned         Boolean   @default(false)
+  viewCount        Int       @default(0)
+  expiresAt        DateTime?
+  isDeleted        Boolean   @default(false)
+  isFlagged        Boolean   @default(false)
+  tags             String? // comma-separated
+  description      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  accessGrants PasteAccessGrant[]
+
+  @@index([ownerId])
+  @@index([expiresAt])
+  @@index([visibility])
+  @@index([createdAt])
+}
+
+model PasteAccessGrant {
+  id        String   @id @default(cuid())
+  pasteId   String
+  paste     Paste    @relation(fields: [pasteId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grantedAt DateTime @default(now())
+
+  @@unique([pasteId, userId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminId    String
+  admin      User     @relation(fields: [adminId], references: [id])
+  action     String
+  targetType String
+  targetId   String
+  metadata   String? // JSON string
+  createdAt  DateTime @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
+}
+
+model SiteSetting {
+  key       String   @id
+  value     String // JSON string for flexibility
+  updatedAt DateTime @updatedAt
+}
