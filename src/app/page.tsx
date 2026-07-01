@@ -16,7 +16,7 @@ import { AnimatePresence } from 'framer-motion'
 export default function Home() {
   const { view, loadingUser } = useAppStore()
 
-  // Scroll to top on view change
+  // Scroll to top on view change (but not on back/forward if user scrolled — keep simple: always top)
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [view])

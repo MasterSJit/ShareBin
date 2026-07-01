@@ -1,0 +1,895 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useState, type ReactNode } from 'react'
+     4→import {
+     5→  Card,
+     6→  CardContent,
+     7→  CardFooter,
+     8→  CardHeader,
+     9→  CardTitle,
+    10→} from '@/components/ui/card'
+    11→import { Button } from '@/components/ui/button'
+    12→import { Badge } from '@/components/ui/badge'
+    13→import { Input } from '@/components/ui/input'
+    14→import { Skeleton } from '@/components/ui/skeleton'
+    15→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    16→import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+    17→import { Separator } from '@/components/ui/separator'
+    18→import {
+    19→  AlertDialog,
+    20→  AlertDialogAction,
+    21→  AlertDialogCancel,
+    22→  AlertDialogContent,
+    23→  AlertDialogDescription,
+    24→  AlertDialogFooter,
+    25→  AlertDialogHeader,
+    26→  AlertDialogTitle,
+    27→} from '@/components/ui/alert-dialog'
+    28→import { CodeEditor } from '@/components/editor/code-editor'
+    29→import { PasteCard } from '@/components/paste-card'
+    30→import { api, ApiError, getUnlockedHeader, markUnlocked } from '@/lib/api-client'
+    31→import { useAppStore } from '@/lib/store'
+    32→import { formatBytes, formatRelativeTime, formatDate } from '@/lib/ui-utils'
+    33→import type { SafePaste } from '@/lib/types'
+    34→import { toast } from 'sonner'
+    35→import {
+    36→  ArrowLeft,
+    37→  Lock,
+    38→  Eye,
+    39→  Globe,
+    40→  Link as LinkIcon,
+    41→  Clock,
+    42→  Hourglass,
+    43→  Flame,
+    44→  Copy,
+    45→  Code,
+    46→  Share2,
+    47→  Download,
+    48→  FileText,
+    49→  Trash2,
+    50→  Pencil,
+    51→  AlertTriangle,
+    52→  ShieldAlert,
+    53→  User as UserIcon,
+    54→  Calendar,
+    55→  SearchX,
+    56→  Ghost,
+    57→  Sparkles,
+    58→  Loader2,
+    59→  Flag,
+    60→} from 'lucide-react'
+    61→import { motion } from 'framer-motion'
+    62→import {
+    63→  Reveal,
+    64→  StaggerGroup,
+    65→  AnimatedNumber,
+    66→  scaleIn,
+    67→  fadeUp,
+    68→} from '@/components/motion-helpers'
+    69→
+    70→type PasteWithGate = SafePaste & { passwordRequired?: boolean }
+    71→
+    72→const MAX_ATTEMPTS = 5
+    73→
+    74→export function PasteView({ idOrSlug }: { idOrSlug: string }) {
+    75→  const goBrowse = useAppStore((s) => s.goBrowse)
+    76→  const user = useAppStore((s) => s.user)
+    77→
+    78→  const [paste, setPaste] = useState<PasteWithGate | null>(null)
+    79→  const [loading, setLoading] = useState(true)
+    80→  const [notFound, setNotFound] = useState(false)
+    81→  const [gone, setGone] = useState(false)
+    82→  const [loadError, setLoadError] = useState<string | null>(null)
+    83→
+    84→  const [passwordInput, setPasswordInput] = useState('')
+    85→  const [unlocking, setUnlocking] = useState(false)
+    86→  const [unlockError, setUnlockError] = useState<string | null>(null)
+    87→  const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
+    88→  const [shakeKey, setShakeKey] = useState(0)
+    89→
+    90→  const [related, setRelated] = useState<SafePaste[]>([])
+    91→  const [deleteOpen, setDeleteOpen] = useState(false)
+    92→  const [deleting, setDeleting] = useState(false)
+    93→
+    94→  // Fetch the paste on mount (parent remounts via key on slug change).
+    95→  useEffect(() => {
+    96→    let alive = true
+    97→    setLoading(true)
+    98→    setNotFound(false)
+    99→    setGone(false)
+   100→    setLoadError(null)
+   101→    setPaste(null)
+   102→    setRelated([])
+   103→    setUnlockError(null)
+   104→    setAttemptsLeft(MAX_ATTEMPTS)
+   105→
+   106→    api
+   107→      .getPaste(idOrSlug)
+   108→      .then((rows) => {
+   109→        if (!alive) return
+   110→        const p = rows[0]
+   111→        if (!p) {
+   112→          setNotFound(true)
+   113→          return
+   114→        }
+   115→        setPaste(p)
+   116→        if (!p.passwordRequired && p.language) loadRelated(p)
+   117→      })
+   118→      .catch((e: unknown) => {
+   119→        if (!alive) return
+   120→        if (e instanceof ApiError) {
+   121→          if (e.status === 404) setNotFound(true)
+   122→          else if (e.status === 410) setGone(true)
+   123→          else setLoadError(e.message)
+   124→        } else {
+   125→          setLoadError('Failed to load paste')
+   126→        }
+   127→      })
+   128→      .finally(() => {
+   129→        if (alive) setLoading(false)
+   130→      })
+   131→
+   132→    function loadRelated(p: SafePaste) {
+   133→      api
+   134→        .listPastes({ scope: 'language', language: p.language, pageSize: 4 })
+   135→        .then((list) => {
+   136→          if (alive) setRelated(list.filter((r) => r.id !== p.id).slice(0, 3))
+   137→        })
+   138→        .catch(() => {
+   139→          /* related is optional */
+   140→        })
+   141→    }
+   142→
+   143→    return () => {
+   144→      alive = false
+   145→    }
+   146→  }, [idOrSlug])
+   147→
+   148→  async function handleUnlock(e: React.FormEvent) {
+   149→    e.preventDefault()
+   150→    if (!paste || unlocking || attemptsLeft <= 0) return
+   151→    setUnlocking(true)
+   152→    setUnlockError(null)
+   153→    try {
+   154→      await api.unlockPaste(paste.id, passwordInput)
+   155→      markUnlocked(paste.id)
+   156→      toast.success('Unlocked 🔓')
+   157→      setPasswordInput('')
+   158→      // Re-fetch — the x-unlocked header is now attached automatically.
+   159→      const rows = await api.getPaste(idOrSlug)
+   160→      const fresh = rows[0]
+   161→      if (fresh) {
+   162→        setPaste(fresh)
+   163→        if (fresh.language) {
+   164→          api
+   165→            .listPastes({ scope: 'language', language: fresh.language, pageSize: 4 })
+   166→            .then((list) =>
+   167→              setRelated(list.filter((r) => r.id !== fresh.id).slice(0, 3)),
+   168→            )
+   169→            .catch(() => {})
+   170→        }
+   171→      }
+   172→    } catch (e: unknown) {
+   173→      const next = attemptsLeft - 1
+   174→      setAttemptsLeft(next)
+   175→      setShakeKey((k) => k + 1)
+   176→      if (e instanceof ApiError && e.status === 401) {
+   177→        setUnlockError(
+   178→          next > 0
+   179→            ? `Incorrect password. ${next} attempt${next === 1 ? '' : 's'} remaining.`
+   180→            : 'No attempts remaining. Please contact the paste owner.',
+   181→        )
+   182→      } else {
+   183→        setUnlockError('Failed to unlock paste. Please try again.')
+   184→      }
+   185→    } finally {
+   186→      setUnlocking(false)
+   187→    }
+   188→  }
+   189→
+   190→  async function handleCopy() {
+   191→    if (!paste?.textContent) return
+   192→    try {
+   193→      await navigator.clipboard.writeText(paste.textContent)
+   194→      toast.success('Copied to clipboard')
+   195→    } catch {
+   196→      toast.error('Failed to copy')
+   197→    }
+   198→  }
+   199→
+   200→  async function handleShare() {
+   201→    if (!paste) return
+   202→    try {
+   203→      await navigator.clipboard.writeText(paste.slug)
+   204→      toast.success(`Share code: ${paste.slug} copied`)
+   205→    } catch {
+   206→      toast.error('Failed to copy share code')
+   207→    }
+   208→  }
+   209→
+   210→  async function handleDownload() {
+   211→    if (!paste) return
+   212→    const headers: Record<string, string> = {}
+   213→    const unlocked = getUnlockedHeader()
+   214→    if (unlocked) headers['x-unlocked'] = unlocked
+   215→    try {
+   216→      const res = await fetch(api.fileDownloadUrl(paste.slug), {
+   217→        credentials: 'include',
+   218→        headers,
+   219→      })
+   220→      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+   221→      const blob = await res.blob()
+   222→      const url = URL.createObjectURL(blob)
+   223→      const a = document.createElement('a')
+   224→      a.href = url
+   225→      a.download = paste.originalFileName || paste.slug
+   226→      document.body.appendChild(a)
+   227→      a.click()
+   228→      a.remove()
+   229→      URL.revokeObjectURL(url)
+   230→      toast.success('Download started')
+   231→    } catch {
+   232→      toast.error('Download failed')
+   233→    }
+   234→  }
+   235→
+   236→  async function handleDelete() {
+   237→    if (!paste || deleting) return
+   238→    setDeleting(true)
+   239→    try {
+   240→      await api.deletePaste(paste.id)
+   241→      toast.success('Paste deleted')
+   242→      goBrowse()
+   243→    } catch (e: unknown) {
+   244→      toast.error(e instanceof ApiError ? e.message : 'Failed to delete paste')
+   245→    } finally {
+   246→      setDeleting(false)
+   247→      setDeleteOpen(false)
+   248→    }
+   249→  }
+   250→
+   251→  // --- State: loading ---
+   252→  if (loading) return <PasteSkeleton />
+   253→
+   254→  // --- State: not found ---
+   255→  if (notFound)
+   256→    return (
+   257→      <StateCard
+   258→        icon={Ghost}
+   259→        title="Paste not found"
+   260→        description="The paste you're looking for doesn't exist, has been deleted, or the link is incorrect."
+   261→        onBack={goBrowse}
+   262→      />
+   263→    )
+   264→
+   265→  // --- State: gone (expired/burned before any content returned) ---
+   266→  if (gone)
+   267→    return (
+   268→      <StateCard
+   269→        icon={Flame}
+   270→        title="This paste has expired or been burned."
+   271→        description="It is no longer available. Burned pastes are permanently deleted after their first read."
+   272→        onBack={goBrowse}
+   273→      />
+   274→    )
+   275→
+   276→  // --- State: other load error ---
+   277→  if (loadError)
+   278→    return (
+   279→      <StateCard
+   280→        icon={AlertTriangle}
+   281→        title="Couldn't load paste"
+   282→        description={loadError}
+   283→        onBack={goBrowse}
+   284→      />
+   285→    )
+   286→
+   287→  if (!paste) return null
+   288→
+   289→  // --- State: password gate ---
+   290→  if (paste.passwordRequired) {
+   291→    const lowAttempts = attemptsLeft <= 2
+   292→    return (
+   293→      <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+   294→        <Button
+   295→          variant="ghost"
+   296→          size="sm"
+   297→          onClick={goBrowse}
+   298→          className="mb-6 gap-1.5 text-muted-foreground hover:text-foreground"
+   299→        >
+   300→          <ArrowLeft className="h-4 w-4" /> Back to browse
+   301→        </Button>
+   302→        <div className="flex min-h-[60vh] items-center justify-center">
+   303→          <motion.div
+   304→            key={shakeKey}
+   305→            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+   306→            animate={{
+   307→              opacity: 1,
+   308→              y: 0,
+   309→              scale: 1,
+   310→              x: unlockError ? [0, -8, 8, -6, 6, 0] : 0,
+   311→            }}
+   312→            transition={{
+   313→              opacity: { duration: 0.4, ease: [0.2, 0.8, 0.2, 1] },
+   314→              y: { duration: 0.4, ease: [0.2, 0.8, 0.2, 1] },
+   315→              scale: { duration: 0.4, ease: [0.2, 0.8, 0.2, 1] },
+   316→              x: { duration: 0.45, ease: 'easeInOut' },
+   317→            }}
+   318→            className="glass-strong glow-brand gradient-border w-full max-w-md rounded-2xl"
+   319→          >
+   320→            <CardHeader className="items-center text-center">
+   321→              <div className="animate-pulse-glow relative mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-2 shadow-lg shadow-brand/30">
+   322→                <Lock className="h-7 w-7 text-brand-foreground" />
+   323→                <div className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-br from-brand to-brand-2 opacity-50 blur-md" />
+   324→              </div>
+   325→              <CardTitle className="text-xl">
+   326→                {paste.title || `/${paste.slug}`}
+   327→              </CardTitle>
+   328→              <p className="mt-1 text-sm text-muted-foreground">
+   329→                This paste is password-protected. Enter the password to view its contents.
+   330→              </p>
+   331→            </CardHeader>
+   332→            <CardContent>
+   333→              <form onSubmit={handleUnlock} className="space-y-4">
+   334→                <div className="relative">
+   335→                  <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+   336→                  <Input
+   337→                    type="password"
+   338→                    value={passwordInput}
+   339→                    onChange={(e) => setPasswordInput(e.target.value)}
+   340→                    placeholder="Password"
+   341→                    autoFocus
+   342→                    disabled={unlocking || attemptsLeft <= 0}
+   343→                    aria-label="Paste password"
+   344→                    className="h-11 border-transparent bg-muted/30 pl-10 focus-visible:ring-2 focus-visible:ring-brand"
+   345→                  />
+   346→                </div>
+   347→
+   348→                {unlockError && (
+   349→                  <motion.p
+   350→                    initial={{ opacity: 0, y: -4 }}
+   351→                    animate={{ opacity: 1, y: 0 }}
+   352→                    className="flex items-center gap-1.5 text-sm text-destructive"
+   353→                  >
+   354→                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {unlockError}
+   355→                  </motion.p>
+   356→                )}
+   357→
+   358→                <div className="flex items-center justify-between text-xs">
+   359→                  <span
+   360→                    className={`flex items-center gap-1.5 ${
+   361→                      lowAttempts ? 'text-destructive' : 'text-muted-foreground'
+   362→                    }`}
+   363→                  >
+   364→                    <ShieldAlert className="h-3 w-3" />
+   365→                    {attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} remaining
+   366→                  </span>
+   367→                  <span className="font-mono text-muted-foreground">{paste.language}</span>
+   368→                </div>
+   369→
+   370→                <Button
+   371→                  type="submit"
+   372→                  disabled={unlocking || attemptsLeft <= 0 || passwordInput.length === 0}
+   373→                  className="btn-shine h-11 w-full gap-2 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-lg shadow-brand/30 transition-all hover:shadow-brand/50"
+   374→                >
+   375→                  {unlocking ? (
+   376→                    <>
+   377→                      <Loader2 className="h-4 w-4 animate-spin" /> Unlocking…
+   378→                    </>
+   379→                  ) : (
+   380→                    <>
+   381→                      <Lock className="h-4 w-4" /> Unlock paste
+   382→                    </>
+   383→                  )}
+   384→                </Button>
+   385→              </form>
+   386→            </CardContent>
+   387→          </motion.div>
+   388→        </div>
+   389→      </div>
+   390→    )
+   391→  }
+   392→
+   393→  // --- State: full view ---
+   394→  const isOwner = !!user && !!paste.ownerId && user.id === paste.ownerId
+   395→  const visMeta = visibilityMeta(paste.visibility)
+   396→  const showBurnBanner = paste.burnAfterRead
+   397→
+   398→  return (
+   399→    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+   400→      <Reveal className="mb-4">
+   401→        <Button
+   402→          variant="ghost"
+   403→          size="sm"
+   404→          onClick={goBrowse}
+   405→          className="gap-1.5 text-muted-foreground hover:text-foreground"
+   406→        >
+   407→          <ArrowLeft className="h-4 w-4" /> Back to browse
+   408→        </Button>
+   409→      </Reveal>
+   410→
+   411→      {/* Burn-after-read warning banner */}
+   412→      {showBurnBanner && (
+   413→        <Reveal className="mb-4">
+   414→          <div
+   415→            className="glass animate-pulse-glow flex items-start gap-3 rounded-xl border border-brand-2/40 p-4"
+   416→            role="alert"
+   417→          >
+   418→            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500/20 to-brand-2/20">
+   419→              <Flame className="h-5 w-5 text-amber-500" />
+   420→            </div>
+   421→            <div className="min-w-0">
+   422→              <p className="font-semibold text-foreground">
+   423→                This paste was burned after reading — it is now permanently deleted.
+   424→              </p>
+   425→              <p className="mt-0.5 text-sm text-muted-foreground">
+   426→                The content shown below is the only remaining copy. It cannot be recovered once you leave this page.
+   427→              </p>
+   428→            </div>
+   429→          </div>
+   430→        </Reveal>
+   431→      )}
+   432→
+   433→      {/* Expired / flagged banners */}
+   434→      {paste.isExpired && !paste.isBurned && (
+   435→        <Reveal className="mb-4">
+   436→          <div
+   437→            className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-destructive"
+   438→            role="alert"
+   439→          >
+   440→            <Hourglass className="mt-0.5 h-5 w-5 shrink-0" />
+   441→            <div className="min-w-0">
+   442→              <p className="font-semibold">This paste has expired</p>
+   443→              <p className="mt-0.5 text-sm opacity-90">
+   444→                It is no longer accessible to new viewers.
+   445→              </p>
+   446→            </div>
+   447→          </div>
+   448→        </Reveal>
+   449→      )}
+   450→      {paste.isFlagged && (
+   451→        <Reveal className="mb-4">
+   452→          <div
+   453→            className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-destructive"
+   454→            role="alert"
+   455→          >
+   456→            <Flag className="mt-0.5 h-5 w-5 shrink-0" />
+   457→            <div className="min-w-0">
+   458→              <p className="font-semibold">This paste has been flagged</p>
+   459→              <p className="mt-0.5 text-sm opacity-90">
+   460→                It was flagged by a moderator and may violate community guidelines.
+   461→              </p>
+   462→            </div>
+   463→          </div>
+   464→        </Reveal>
+   465→      )}
+   466→
+   467→      <div className="grid gap-6 lg:grid-cols-3">
+   468→        {/* ===== Main column ===== */}
+   469→        <div className="min-w-0 lg:col-span-2">
+   470→          {/* Paste header */}
+   471→          <Reveal variant={fadeUp} className="mb-4">
+   472→            <div className="flex flex-wrap items-start gap-3">
+   473→              <h1 className="min-w-0 flex-1 text-2xl font-bold tracking-tight sm:text-3xl">
+   474→                <span className="text-gradient">
+   475→                  {paste.title ||
+   476→                    (paste.contentType === 'file' ? paste.originalFileName : `/${paste.slug}`)}
+   477→                </span>
+   478→              </h1>
+   479→              <Badge
+   480→                variant="secondary"
+   481→                className="gap-1 bg-gradient-to-r from-brand/15 to-brand-2/15 font-mono text-xs"
+   482→              >
+   483→                {paste.contentType === 'file' ? (
+   484→                  <>
+   485→                    <FileText className="h-3 w-3" /> file
+   486→                  </>
+   487→                ) : (
+   488→                  <>
+   489→                    <Code className="h-3 w-3" /> {paste.language}
+   490→                  </>
+   491→                )}
+   492→              </Badge>
+   493→            </div>
+   494→            {paste.description && (
+   495→              <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+   496→                {paste.description}
+   497→              </p>
+   498→            )}
+   499→            {paste.tags.length > 0 && (
+   500→              <div className="mt-3 flex flex-wrap gap-1.5">
+   501→                {paste.tags.map((t) => (
+   502→                  <span
+   503→                    key={t}
+   504→                    className="glass rounded-full px-2.5 py-0.5 text-xs text-muted-foreground"
+   505→                  >
+   506→                    #{t}
+   507→                  </span>
+   508→                ))}
+   509→              </div>
+   510→            )}
+   511→          </Reveal>
+   512→
+   513→          {/* Action bar */}
+   514→          {paste.contentType === 'text' && (
+   515→            <Reveal variant={fadeUp} delay={0.05} className="mb-3">
+   516→              <div className="glass flex flex-wrap items-center gap-2 rounded-xl p-2">
+   517→                <Button
+   518→                  variant="ghost"
+   519→                  size="sm"
+   520→                  onClick={handleCopy}
+   521→                  disabled={!paste.textContent}
+   522→                  className="gap-1.5 bg-muted/40 hover:bg-brand/15 hover:text-brand"
+   523→                >
+   524→                  <Copy className="h-4 w-4" /> Copy
+   525→                </Button>
+   526→                <Button variant="ghost" size="sm" asChild className="gap-1.5 bg-muted/40 hover:bg-brand/15 hover:text-brand">
+   527→                  <a
+   528→                    href={`/api/paste/raw?id=${encodeURIComponent(paste.slug)}`}
+   529→                    target="_blank"
+   530→                    rel="noreferrer"
+   531→                  >
+   532→                    <Code className="h-4 w-4" /> Raw
+   533→                  </a>
+   534→                </Button>
+   535→                <Button
+   536→                  variant="ghost"
+   537→                  size="sm"
+   538→                  onClick={handleShare}
+   539→                  className="gap-1.5 bg-muted/40 hover:bg-brand/15 hover:text-brand"
+   540→                >
+   541→                  <Share2 className="h-4 w-4" /> Share
+   542→                </Button>
+   543→              </div>
+   544→            </Reveal>
+   545→          )}
+   546→
+   547→          {/* Content */}
+   548→          {paste.contentType === 'text' ? (
+   549→            <Reveal variant={scaleIn} delay={0.1}>
+   550→              <div className="glass min-h-[500px] overflow-hidden rounded-xl border border-border/50">
+   551→                {/* Editor top bar */}
+   552→                <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2.5">
+   553→                  <div className="flex items-center gap-2">
+   554→                    <span className="h-3 w-3 rounded-full bg-red-500/70" />
+   555→                    <span className="h-3 w-3 rounded-full bg-amber-500/70" />
+   556→                    <span className="h-3 w-3 rounded-full bg-brand/70" />
+   557→                  </div>
+   558→                  <span className="font-mono text-xs text-muted-foreground">
+   559→                    {paste.language}
+   560→                  </span>
+   561→                  <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+   562→                    read-only
+   563→                  </span>
+   564→                </div>
+   565→                <div className="h-[600px]">
+   566→                  <CodeEditor
+   567→                    value={paste.textContent || ''}
+   568→                    language={paste.language}
+   569→                    readOnly
+   570→                    height="600px"
+   571→                  />
+   572→                </div>
+   573→              </div>
+   574→            </Reveal>
+   575→          ) : (
+   576→            <Reveal variant={scaleIn} delay={0.1}>
+   577→              <div className="glass flex flex-col items-center gap-5 rounded-2xl p-6 text-center sm:flex-row sm:text-left">
+   578→                <div className="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-brand to-brand-2 shadow-lg shadow-brand/30">
+   579→                  <FileText className="h-10 w-10 text-brand-foreground" />
+   580→                  <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-brand to-brand-2 opacity-40 blur-lg" />
+   581→                </div>
+   582→                <div className="min-w-0 flex-1">
+   583→                  <p className="truncate text-lg font-semibold">
+   584→                    {paste.originalFileName || `/${paste.slug}`}
+   585→                  </p>
+   586→                  <p className="mt-1 text-sm text-muted-foreground">
+   587→                    {formatBytes(paste.fileSizeBytes)}
+   588→                    {paste.mimeType ? ` · ${paste.mimeType}` : ''}
+   589→                  </p>
+   590→                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+   591→                    <span className="rounded-md bg-muted/30 px-2 py-0.5 font-mono">
+   592→                      {paste.mimeType || 'application/octet-stream'}
+   593→                    </span>
+   594→                  </div>
+   595→                </div>
+   596→                <Button
+   597→                  onClick={handleDownload}
+   598→                  className="btn-shine gap-2 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-lg shadow-brand/30 transition-all hover:shadow-brand/50"
+   599→                >
+   600→                  <Download className="h-4 w-4" /> Download
+   601→                </Button>
+   602→              </div>
+   603→            </Reveal>
+   604→          )}
+   605→
+   606→          {/* Related pastes */}
+   607→          {related.length > 0 && (
+   608→            <Reveal variant={fadeUp} className="mt-10">
+   609→              <section>
+   610→                <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
+   611→                  <Sparkles className="h-5 w-5 text-brand" /> More in{' '}
+   612→                  <span className="text-gradient font-mono">{paste.language}</span>
+   613→                </h2>
+   614→                <StaggerGroup stagger={0.08} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   615→                  {related.map((p) => (
+   616→                    <Reveal key={p.id} variant={scaleIn}>
+   617→                      <PasteCard paste={p} />
+   618→                    </Reveal>
+   619→                  ))}
+   620→                </StaggerGroup>
+   621→              </section>
+   622→            </Reveal>
+   623→          )}
+   624→        </div>
+   625→
+   626→        {/* ===== Sidebar ===== */}
+   627→        <aside className="lg:col-span-1">
+   628→          <Reveal variant={fadeUp} delay={0.1} className="lg:sticky lg:top-20">
+   629→            <Card className="glass-strong gradient-border overflow-hidden rounded-2xl">
+   630→              <CardHeader className="pb-3">
+   631→                <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+   632→                  Details
+   633→                </CardTitle>
+   634→              </CardHeader>
+   635→              <CardContent className="space-y-3">
+   636→                {/* Owner row */}
+   637→                <div className="flex items-center gap-3">
+   638→                  <Avatar className="h-10 w-10">
+   639→                    <AvatarFallback className="bg-gradient-to-br from-brand to-brand-2 text-xs font-semibold text-brand-foreground">
+   640→                      {paste.ownerName ? (
+   641→                        paste.ownerName.slice(0, 2).toUpperCase()
+   642→                      ) : (
+   643→                        <UserIcon className="h-4 w-4" />
+   644→                      )}
+   645→                    </AvatarFallback>
+   646→                  </Avatar>
+   647→                  <div className="min-w-0">
+   648→                    <p className="truncate text-sm font-medium">
+   649→                      {paste.ownerName || 'Guest'}
+   650→                    </p>
+   651→                    <p className="text-[11px] uppercase tracking-wide text-brand">owner</p>
+   652→                  </div>
+   653→                </div>
+   654→
+   655→                <Separator />
+   656→
+   657→                {/* Stat tiles grid */}
+   658→                <div className="grid grid-cols-2 gap-2">
+   659→                  <StatTile icon={visMeta.icon} label="Visibility">
+   660→                    <span className="truncate">{visMeta.label}</span>
+   661→                  </StatTile>
+   662→
+   663→                  <StatTile icon={Code} label="Language">
+   664→                    <span className="truncate font-mono text-xs">{paste.language}</span>
+   665→                  </StatTile>
+   666→
+   667→                  <StatTile icon={Eye} label="Views">
+   668→                    <AnimatedNumber
+   669→                      value={paste.viewCount}
+   670→                      className="font-mono tabular-nums"
+   671→                    />
+   672→                  </StatTile>
+   673→
+   674→                  <StatTile icon={FileText} label="Type">
+   675→                    <span className="truncate">{paste.contentType}</span>
+   676→                  </StatTile>
+   677→
+   678→                  <StatTile icon={Calendar} label="Created" full>
+   679→                    <Tooltip>
+   680→                      <TooltipTrigger asChild>
+   681→                        <span className="cursor-help truncate">
+   682→                          {formatRelativeTime(paste.createdAt)}
+   683→                        </span>
+   684→                      </TooltipTrigger>
+   685→                      <TooltipContent>{formatDate(paste.createdAt)}</TooltipContent>
+   686→                    </Tooltip>
+   687→                  </StatTile>
+   688→
+   689→                  <StatTile icon={Hourglass} label="Expires" full>
+   690→                    {paste.expiresAt ? (
+   691→                      <Tooltip>
+   692→                        <TooltipTrigger asChild>
+   693→                          <span className="cursor-help truncate">
+   694→                            {formatRelativeTime(paste.expiresAt)}
+   695→                          </span>
+   696→                        </TooltipTrigger>
+   697→                        <TooltipContent>{formatDate(paste.expiresAt)}</TooltipContent>
+   698→                      </Tooltip>
+   699→                    ) : (
+   700→                      <span>Never</span>
+   701→                    )}
+   702→                  </StatTile>
+   703→                </div>
+   704→
+   705→                {/* Badges row */}
+   706→                {(paste.burnAfterRead || paste.hasPassword || paste.isFlagged) && (
+   707→                  <>
+   708→                    <Separator />
+   709→                    <div className="flex flex-wrap gap-1.5">
+   710→                      {paste.burnAfterRead && (
+   711→                        <Badge
+   712→                          variant="outline"
+   713→                          className="gap-1 border-brand-2/40 bg-brand-2/10 text-xs text-brand-2"
+   714→                        >
+   715→                          <Flame className="h-3 w-3" /> Burn{paste.isBurned ? 'ed' : ' after read'}
+   716→                        </Badge>
+   717→                      )}
+   718→                      {paste.hasPassword && (
+   719→                        <Badge variant="outline" className="gap-1 text-xs">
+   720→                          <Lock className="h-3 w-3" /> Password
+   721→                        </Badge>
+   722→                      )}
+   723→                      {paste.isFlagged && (
+   724→                        <Badge variant="destructive" className="gap-1 text-xs">
+   725→                          <Flag className="h-3 w-3" /> Flagged
+   726→                        </Badge>
+   727→                      )}
+   728→                    </div>
+   729→                  </>
+   730→                )}
+   731→
+   732→                {/* Owner actions */}
+   733→                {isOwner && (
+   734→                  <>
+   735→                    <Separator />
+   736→                    <div className="flex flex-col gap-2 pt-1">
+   737→                      <Button
+   738→                        variant="outline"
+   739→                        size="sm"
+   740→                        className="w-full gap-1.5 border-border/60 hover:border-brand/40 hover:bg-brand/10 hover:text-brand"
+   741→                        onClick={() => toast.message('Open Dashboard to edit')}
+   742→                      >
+   743→                        <Pencil className="h-4 w-4" /> Edit
+   744→                      </Button>
+   745→                      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+   746→                        <Button
+   747→                          variant="destructive"
+   748→                          size="sm"
+   749→                          className="w-full gap-1.5"
+   750→                          onClick={() => setDeleteOpen(true)}
+   751→                        >
+   752→                          <Trash2 className="h-4 w-4" /> Delete
+   753→                        </Button>
+   754→                        <AlertDialogContent>
+   755→                          <AlertDialogHeader>
+   756→                            <AlertDialogTitle>Delete this paste?</AlertDialogTitle>
+   757→                            <AlertDialogDescription>
+   758→                              This action cannot be undone. The paste &ldquo;
+   759→                              {paste.title || paste.slug}&rdquo; will be permanently removed.
+   760→                            </AlertDialogDescription>
+   761→                          </AlertDialogHeader>
+   762→                          <AlertDialogFooter>
+   763→                            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+   764→                            <AlertDialogAction
+   765→                              onClick={handleDelete}
+   766→                              disabled={deleting}
+   767→                              className="bg-destructive text-white hover:bg-destructive/90"
+   768→                            >
+   769→                              {deleting ? 'Deleting…' : 'Delete paste'}
+   770→                            </AlertDialogAction>
+   771→                          </AlertDialogFooter>
+   772→                        </AlertDialogContent>
+   773→                      </AlertDialog>
+   774→                    </div>
+   775→                  </>
+   776→                )}
+   777→              </CardContent>
+   778→              <CardFooter className="pt-0">
+   779→                <p className="w-full text-center font-mono text-[10px] text-muted-foreground">
+   780→                  /{paste.slug}
+   781→                </p>
+   782→              </CardFooter>
+   783→            </Card>
+   784→          </Reveal>
+   785→        </aside>
+   786→      </div>
+   787→    </div>
+   788→  )
+   789→}
+   790→
+   791→// ---------- helpers ----------
+   792→
+   793→function visibilityMeta(v: string) {
+   794→  if (v === 'public') return { icon: Globe, label: 'Public' }
+   795→  if (v === 'unlisted') return { icon: LinkIcon, label: 'Unlisted' }
+   796→  return { icon: Lock, label: 'Private' }
+   797→}
+   798→
+   799→function StatTile({
+   800→  icon: Icon,
+   801→  label,
+   802→  children,
+   803→  full,
+   804→}: {
+   805→  icon: typeof Eye
+   806→  label: string
+   807→  children: ReactNode
+   808→  full?: boolean
+   809→}) {
+   810→  return (
+   811→    <div
+   812→      className={`glass flex flex-col gap-1 rounded-lg px-3 py-2 ${
+   813→        full ? 'col-span-2' : ''
+   814→      }`}
+   815→    >
+   816→      <span className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+   817→        <Icon className="h-3 w-3" /> {label}
+   818→      </span>
+   819→      <span className="min-w-0 truncate text-sm font-medium">{children}</span>
+   820→    </div>
+   821→  )
+   822→}
+   823→
+   824→function StateCard({
+   825→  icon: Icon,
+   826→  title,
+   827→  description,
+   828→  onBack,
+   829→}: {
+   830→  icon: typeof SearchX
+   831→  title: string
+   832→  description: string
+   833→  onBack: () => void
+   834→}) {
+   835→  return (
+   836→    <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+   837→      <div className="flex min-h-[60vh] items-center justify-center">
+   838→        <motion.div
+   839→          initial={{ opacity: 0, y: 16, scale: 0.96 }}
+   840→          animate={{ opacity: 1, y: 0, scale: 1 }}
+   841→          transition={{ duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}
+   842→          className="glass-strong gradient-border w-full max-w-md rounded-2xl"
+   843→        >
+   844→          <CardContent className="flex flex-col items-center gap-4 px-6 py-12 text-center">
+   845→            <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-brand/15 to-brand-2/15">
+   846→              <Icon className="h-10 w-10 text-muted-foreground" />
+   847→              <div className="pointer-events-none absolute inset-0 rounded-full bg-brand/5 blur-xl" />
+   848→            </div>
+   849→            <div className="space-y-1.5">
+   850→              <p className="text-lg font-semibold">{title}</p>
+   851→              <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
+   852→            </div>
+   853→            <Button
+   854→              onClick={onBack}
+   855→              className="btn-shine mt-2 gap-1.5 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-lg shadow-brand/30 transition-all hover:shadow-brand/50"
+   856→            >
+   857→              <ArrowLeft className="h-4 w-4" /> Back to browse
+   858→            </Button>
+   859→          </CardContent>
+   860→        </motion.div>
+   861→      </div>
+   862→    </div>
+   863→  )
+   864→}
+   865→
+   866→function PasteSkeleton() {
+   867→  return (
+   868→    <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-center px-4 py-16 sm:px-6 lg:px-8">
+   869→      <div className="mb-8 flex flex-col items-center gap-3">
+   870→        <Loader2 className="h-8 w-8 animate-spin text-brand" />
+   871→        <p className="text-gradient text-lg font-semibold">Loading paste…</p>
+   872→      </div>
+   873→      <div className="w-full">
+   874→        <Skeleton className="mb-4 h-8 w-32 rounded-lg bg-muted/30" />
+   875→        <div className="grid gap-6 lg:grid-cols-3">
+   876→          <div className="min-w-0 space-y-4 lg:col-span-2">
+   877→            <Skeleton className="h-9 w-3/4 rounded-lg bg-muted/30" />
+   878→            <Skeleton className="h-4 w-full rounded bg-muted/25" />
+   879→            <Skeleton className="h-4 w-2/3 rounded bg-muted/25" />
+   880→            <div className="flex gap-2">
+   881→              <Skeleton className="h-9 w-20 rounded-lg bg-muted/30" />
+   882→              <Skeleton className="h-9 w-20 rounded-lg bg-muted/30" />
+   883→              <Skeleton className="h-9 w-20 rounded-lg bg-muted/30" />
+   884→            </div>
+   885→            <div className="shimmer glass h-[600px] w-full rounded-xl bg-muted/20" />
+   886→          </div>
+   887→          <div className="hidden lg:block">
+   888→            <Skeleton className="h-80 w-full rounded-2xl bg-muted/25" />
+   889→          </div>
+   890→        </div>
+   891→      </div>
+   892→    </div>
+   893→  )
+   894→}
+   895→

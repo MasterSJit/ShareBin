@@ -1,0 +1,850 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useMemo, useState } from 'react'
+     4→import { motion } from 'framer-motion'
+     5→import { Button } from '@/components/ui/button'
+     6→import { Input } from '@/components/ui/input'
+     7→import { Label } from '@/components/ui/label'
+     8→import { Badge } from '@/components/ui/badge'
+     9→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    10→import { Separator } from '@/components/ui/separator'
+    11→import { Skeleton } from '@/components/ui/skeleton'
+    12→import { Switch } from '@/components/ui/switch'
+    13→import { Textarea } from '@/components/ui/textarea'
+    14→import {
+    15→  Select,
+    16→  SelectContent,
+    17→  SelectItem,
+    18→  SelectTrigger,
+    19→  SelectValue,
+    20→} from '@/components/ui/select'
+    21→import {
+    22→  Collapsible,
+    23→  CollapsibleContent,
+    24→  CollapsibleTrigger,
+    25→} from '@/components/ui/collapsible'
+    26→import {
+    27→  Dialog,
+    28→  DialogContent,
+    29→  DialogDescription,
+    30→  DialogFooter,
+    31→  DialogHeader,
+    32→  DialogTitle,
+    33→} from '@/components/ui/dialog'
+    34→import {
+    35→  AlertDialog,
+    36→  AlertDialogAction,
+    37→  AlertDialogCancel,
+    38→  AlertDialogContent,
+    39→  AlertDialogDescription,
+    40→  AlertDialogFooter,
+    41→  AlertDialogHeader,
+    42→  AlertDialogTitle,
+    43→  AlertDialogTrigger,
+    44→} from '@/components/ui/alert-dialog'
+    45→import {
+    46→  Eye,
+    47→  EyeOff,
+    48→  KeyRound,
+    49→  RefreshCw,
+    50→  Pencil,
+    51→  Trash2,
+    52→  Plus,
+    53→  Loader2,
+    54→  Shield,
+    55→  Lock,
+    56→  ChevronDown,
+    57→  LogIn,
+    58→  AlertTriangle,
+    59→  Copy,
+    60→  Check,
+    61→  Crown,
+    62→} from 'lucide-react'
+    63→import { toast } from 'sonner'
+    64→import { api, ApiError } from '@/lib/api-client'
+    65→import { useAppStore } from '@/lib/store'
+    66→import { PasteCard } from '@/components/paste-card'
+    67→import { LANGUAGES, EXPIRY_OPTIONS, formatDate, formatRelativeTime } from '@/lib/ui-utils'
+    68→import {
+    69→  Reveal,
+    70→  StaggerGroup,
+    71→  AnimatedNumber,
+    72→  fadeUp,
+    73→} from '@/components/motion-helpers'
+    74→import type { SafePaste, SafeUser } from '@/lib/types'
+    75→
+    76→type FilterKey = 'all' | 'active' | 'expired' | 'burned' | 'flagged'
+    77→
+    78→const FILTERS: { key: FilterKey; label: string }[] = [
+    79→  { key: 'all', label: 'All' },
+    80→  { key: 'active', label: 'Active' },
+    81→  { key: 'expired', label: 'Expired' },
+    82→  { key: 'burned', label: 'Burned' },
+    83→  { key: 'flagged', label: 'Flagged' },
+    84→]
+    85→
+    86→export function DashboardView() {
+    87→  const { user, goLogin } = useAppStore()
+    88→
+    89→  if (!user) {
+    90→    return (
+    91→      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
+    92→        <Reveal variant={fadeUp} className="mx-auto mt-12 max-w-md">
+    93→          <div className="glass-strong gradient-border rounded-2xl p-8 text-center glow-brand">
+    94→            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-2 shadow-lg shadow-brand/30">
+    95→              <Lock className="h-7 w-7 text-brand-foreground" />
+    96→            </div>
+    97→            <h2 className="text-xl font-semibold tracking-tight">Log in required</h2>
+    98→            <p className="mt-1 text-sm text-muted-foreground">
+    99→              You need to be logged in to view your dashboard.
+   100→            </p>
+   101→            <Button
+   102→              onClick={goLogin}
+   103→              className="btn-shine mt-5 gap-2 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-lg shadow-brand/30"
+   104→            >
+   105→              <LogIn className="h-4 w-4" /> Go to login
+   106→            </Button>
+   107→          </div>
+   108→        </Reveal>
+   109→      </div>
+   110→    )
+   111→  }
+   112→
+   113→  return <DashboardInner />
+   114→}
+   115→
+   116→function DashboardInner() {
+   117→  const { user, setUser, goHome } = useAppStore()
+   118→  const [pastes, setPastes] = useState<SafePaste[]>([])
+   119→  const [loading, setLoading] = useState(true)
+   120→  const [filter, setFilter] = useState<FilterKey>('all')
+   121→  const [editing, setEditing] = useState<SafePaste | null>(null)
+   122→  const [deleting, setDeleting] = useState<SafePaste | null>(null)
+   123→
+   124→  async function fetchPastes() {
+   125→    setLoading(true)
+   126→    try {
+   127→      const rows = await api.listPastes({ scope: 'own', pageSize: 50 })
+   128→      setPastes(rows)
+   129→    } catch (err) {
+   130→      toast.error(err instanceof ApiError ? err.message : 'Failed to load pastes.')
+   131→    } finally {
+   132→      setLoading(false)
+   133→    }
+   134→  }
+   135→
+   136→  useEffect(() => {
+   137→    fetchPastes()
+   138→  }, [])
+   139→
+   140→  const filtered = useMemo(() => {
+   141→    return pastes.filter((p) => {
+   142→      if (filter === 'active') return !p.isExpired && !p.isBurned && !p.isFlagged
+   143→      if (filter === 'expired') return p.isExpired
+   144→      if (filter === 'burned') return p.isBurned
+   145→      if (filter === 'flagged') return p.isFlagged
+   146→      return true
+   147→    })
+   148→  }, [pastes, filter])
+   149→
+   150→  const counts = useMemo(
+   151→    () => ({
+   152→      all: pastes.length,
+   153→      active: pastes.filter((p) => !p.isExpired && !p.isBurned && !p.isFlagged).length,
+   154→      expired: pastes.filter((p) => p.isExpired).length,
+   155→      burned: pastes.filter((p) => p.isBurned).length,
+   156→      flagged: pastes.filter((p) => p.isFlagged).length,
+   157→    }),
+   158→    [pastes],
+   159→  )
+   160→
+   161→  async function onDelete(p: SafePaste) {
+   162→    try {
+   163→      await api.deletePaste(p.id)
+   164→      setPastes((cur) => cur.filter((x) => x.id !== p.id))
+   165→      toast.success('Paste deleted')
+   166→    } catch (err) {
+   167→      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+   168→    } finally {
+   169→      setDeleting(null)
+   170→    }
+   171→  }
+   172→
+   173→  if (!user) return null
+   174→
+   175→  const name = user.displayName || user.email.split('@')[0]
+   176→
+   177→  return (
+   178→    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
+   179→      {/* Header */}
+   180→      <Reveal variant={fadeUp} className="mb-8">
+   181→        <div className="flex flex-wrap items-center gap-4">
+   182→          <Avatar className="h-12 w-12 ring-2 ring-brand/40 ring-offset-2 ring-offset-background">
+   183→            <AvatarFallback className="bg-gradient-to-br from-brand to-brand-2 text-brand-foreground">
+   184→              {name.slice(0, 2).toUpperCase()}
+   185→            </AvatarFallback>
+   186→          </Avatar>
+   187→          <div>
+   188→            <h1 className="text-3xl font-bold tracking-tight">
+   189→              <span className="text-gradient">My Dashboard</span>
+   190→            </h1>
+   191→            <p className="text-sm text-muted-foreground">
+   192→              Welcome back, <span className="font-medium text-foreground">{name}</span>
+   193→            </p>
+   194→          </div>
+   195→        </div>
+   196→      </Reveal>
+   197→
+   198→      <div className="lg:grid lg:grid-cols-3 gap-6">
+   199→        {/* Profile card */}
+   200→        <div className="lg:col-span-1">
+   201→          <Reveal variant={fadeUp}>
+   202→            <ProfileCard user={user} onUpdate={setUser} />
+   203→          </Reveal>
+   204→        </div>
+   205→
+   206→        {/* My Pastes */}
+   207→        <section className="lg:col-span-2">
+   208→          <Reveal variant={fadeUp} delay={0.05}>
+   209→            <div className="mb-4 flex items-center justify-between gap-2">
+   210→              <h2 className="flex items-baseline gap-2 text-xl font-semibold tracking-tight">
+   211→                My Pastes
+   212→                <span className="text-2xl font-bold text-brand">
+   213→                  <AnimatedNumber value={pastes.length} />
+   214→                </span>
+   215→              </h2>
+   216→              <Button
+   217→                onClick={goHome}
+   218→                size="sm"
+   219→                className="btn-shine gap-1.5 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-md shadow-brand/30"
+   220→              >
+   221→                <Plus className="h-4 w-4" /> New paste
+   222→              </Button>
+   223→            </div>
+   224→          </Reveal>
+   225→
+   226→          {/* Filter chips */}
+   227→          <Reveal variant={fadeUp} delay={0.1} className="mb-5">
+   228→            <div className="flex flex-wrap gap-2">
+   229→              {FILTERS.map((f) => {
+   230→                const isActive = filter === f.key
+   231→                return (
+   232→                  <button
+   233→                    key={f.key}
+   234→                    onClick={() => setFilter(f.key)}
+   235→                    className={
+   236→                      'glass rounded-full px-3 py-1.5 text-xs font-medium transition-all ' +
+   237→                      (isActive
+   238→                        ? 'bg-brand/15 text-brand shadow-sm shadow-brand/20'
+   239→                        : 'text-muted-foreground hover:text-foreground hover:bg-brand/5')
+   240→                    }
+   241→                  >
+   242→                    {f.label}{' '}
+   243→                    <span className={isActive ? 'text-brand/80' : 'text-muted-foreground/70'}>
+   244→                      {counts[f.key]}
+   245→                    </span>
+   246→                  </button>
+   247→                )
+   248→              })}
+   249→            </div>
+   250→          </Reveal>
+   251→
+   252→          {loading ? (
+   253→            <div className="space-y-3">
+   254→              {[0, 1, 2, 3].map((i) => (
+   255→                <div
+   256→                  key={i}
+   257→                  className="shimmer rounded-xl border border-border/50 bg-muted/30 p-4"
+   258→                >
+   259→                  <Skeleton className="mb-2 h-5 w-2/3" />
+   260→                  <Skeleton className="mb-3 h-3 w-1/3" />
+   261→                  <Skeleton className="h-16 w-full" />
+   262→                </div>
+   263→              ))}
+   264→            </div>
+   265→          ) : filtered.length === 0 ? (
+   266→            <Reveal variant={fadeUp}>
+   267→              <div className="glass rounded-2xl p-10 text-center">
+   268→                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand/10">
+   269→                  <Plus className="h-6 w-6 text-brand" />
+   270→                </div>
+   271→                <p className="text-sm text-muted-foreground">
+   272→                  You haven&apos;t created any pastes yet.
+   273→                </p>
+   274→                <Button
+   275→                  onClick={goHome}
+   276→                  className="btn-shine mt-4 gap-1.5 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-md shadow-brand/30"
+   277→                >
+   278→                  <Plus className="h-4 w-4" /> Create your first paste
+   279→                </Button>
+   280→              </div>
+   281→            </Reveal>
+   282→          ) : (
+   283→            <StaggerGroup stagger={0.05} className="space-y-4">
+   284→              {filtered.map((p) => (
+   285→                <motion.div key={p.id} variants={fadeUp}>
+   286→                  <PasteCard paste={p} />
+   287→                  <div className="mt-1.5 flex items-center justify-end gap-2 px-1">
+   288→                    <Button
+   289→                      size="sm"
+   290→                      variant="outline"
+   291→                      className="h-7 gap-1 px-2 text-xs hover:border-brand/50 hover:text-brand"
+   292→                      onClick={() => setEditing(p)}
+   293→                    >
+   294→                      <Pencil className="h-3 w-3" /> Edit
+   295→                    </Button>
+   296→                    <Button
+   297→                      size="sm"
+   298→                      variant="outline"
+   299→                      className="h-7 gap-1 px-2 text-xs hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive"
+   300→                      onClick={() => setDeleting(p)}
+   301→                    >
+   302→                      <Trash2 className="h-3 w-3" /> Delete
+   303→                    </Button>
+   304→                  </div>
+   305→                </motion.div>
+   306→              ))}
+   307→            </StaggerGroup>
+   308→          )}
+   309→        </section>
+   310→      </div>
+   311→
+   312→      {editing && (
+   313→        <EditPasteDialog
+   314→          paste={editing}
+   315→          onClose={() => setEditing(null)}
+   316→          onSaved={() => {
+   317→            setEditing(null)
+   318→            fetchPastes()
+   319→          }}
+   320→        />
+   321→      )}
+   322→
+   323→      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+   324→        <AlertDialogContent className="glass-strong">
+   325→          <AlertDialogHeader>
+   326→            <AlertDialogTitle>Delete this paste?</AlertDialogTitle>
+   327→            <AlertDialogDescription>
+   328→              &quot;{deleting?.title || deleting?.slug}&quot; will be permanently removed. This
+   329→              action cannot be undone.
+   330→            </AlertDialogDescription>
+   331→          </AlertDialogHeader>
+   332→          <AlertDialogFooter>
+   333→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   334→            <AlertDialogAction
+   335→              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   336→              onClick={() => deleting && onDelete(deleting)}
+   337→            >
+   338→              Delete
+   339→            </AlertDialogAction>
+   340→          </AlertDialogFooter>
+   341→        </AlertDialogContent>
+   342→      </AlertDialog>
+   343→    </div>
+   344→  )
+   345→}
+   346→
+   347→function ProfileCard({
+   348→  user,
+   349→  onUpdate,
+   350→}: {
+   351→  user: SafeUser
+   352→  onUpdate: (u: SafeUser) => void
+   353→}) {
+   354→  const [showKey, setShowKey] = useState(false)
+   355→  const [regenerating, setRegenerating] = useState(false)
+   356→  const [copiedKey, setCopiedKey] = useState(false)
+   357→
+   358→  // Edit profile
+   359→  const [editOpen, setEditOpen] = useState(false)
+   360→  const [displayName, setDisplayName] = useState(user.displayName || '')
+   361→  const [savingProfile, setSavingProfile] = useState(false)
+   362→
+   363→  // Change password
+   364→  const [pwOpen, setPwOpen] = useState(false)
+   365→  const [currentPw, setCurrentPw] = useState('')
+   366→  const [newPw, setNewPw] = useState('')
+   367→  const [savingPw, setSavingPw] = useState(false)
+   368→
+   369→  // Delete account
+   370→  const [delOpen, setDelOpen] = useState(false)
+   371→  const [delPw, setDelPw] = useState('')
+   372→  const [deleting, setDeleting] = useState(false)
+   373→
+   374→  const { setUser, goHome } = useAppStore()
+   375→
+   376→  async function regenerate() {
+   377→    setRegenerating(true)
+   378→    try {
+   379→      const rows = await api.updateProfile({ regenerateApiKey: true })
+   380→      const u = rows[0]
+   381→      if (u) {
+   382→        onUpdate(u)
+   383→        toast.success('API key regenerated')
+   384→      }
+   385→    } catch (err) {
+   386→      toast.error(err instanceof ApiError ? err.message : 'Failed to regenerate key.')
+   387→    } finally {
+   388→      setRegenerating(false)
+   389→    }
+   390→  }
+   391→
+   392→  function copyKey() {
+   393→    if (!user.apiKey) return
+   394→    navigator.clipboard.writeText(user.apiKey).then(() => {
+   395→      setCopiedKey(true)
+   396→      setTimeout(() => setCopiedKey(false), 1500)
+   397→    })
+   398→  }
+   399→
+   400→  async function saveProfile() {
+   401→    setSavingProfile(true)
+   402→    try {
+   403→      const rows = await api.updateProfile({ displayName: displayName || undefined })
+   404→      const u = rows[0]
+   405→      if (u) {
+   406→        onUpdate(u)
+   407→        toast.success('Profile updated')
+   408→        setEditOpen(false)
+   409→      }
+   410→    } catch (err) {
+   411→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+   412→    } finally {
+   413→      setSavingProfile(false)
+   414→    }
+   415→  }
+   416→
+   417→  async function savePassword() {
+   418→    if (newPw.length < 8) {
+   419→      toast.error('New password must be at least 8 characters.')
+   420→      return
+   421→    }
+   422→    setSavingPw(true)
+   423→    try {
+   424→      const rows = await api.updateProfile({ currentPassword: currentPw, newPassword: newPw })
+   425→      const u = rows[0]
+   426→      if (u) {
+   427→        onUpdate(u)
+   428→        toast.success('Password changed')
+   429→        setPwOpen(false)
+   430→        setCurrentPw('')
+   431→        setNewPw('')
+   432→      }
+   433→    } catch (err) {
+   434→      toast.error(err instanceof ApiError ? err.message : 'Password change failed.')
+   435→    } finally {
+   436→      setSavingPw(false)
+   437→    }
+   438→  }
+   439→
+   440→  async function deleteAccount() {
+   441→    if (!delPw) {
+   442→      toast.error('Enter your current password.')
+   443→      return
+   444→    }
+   445→    setDeleting(true)
+   446→    try {
+   447→      await api.deleteAccount(delPw)
+   448→      toast.success('Account deleted')
+   449→      setUser(null)
+   450→      goHome()
+   451→    } catch (err) {
+   452→      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+   453→    } finally {
+   454→      setDeleting(false)
+   455→    }
+   456→  }
+   457→
+   458→  const maskedKey = user.apiKey
+   459→    ? showKey
+   460→      ? user.apiKey
+   461→      : user.apiKey.slice(0, 6) + '••••••••••••••••'
+   462→    : '—'
+   463→
+   464→  return (
+   465→    <div className="glass-strong gradient-border rounded-2xl p-5 glow-brand-hover">
+   466→      {/* Profile head */}
+   467→      <div className="flex items-center gap-3">
+   468→        <div className="rounded-full bg-gradient-to-br from-brand to-brand-2 p-[2px]">
+   469→          <Avatar className="h-12 w-12 border-2 border-background">
+   470→            <AvatarFallback className="bg-background text-sm font-semibold text-brand">
+   471→              {(user.displayName || user.email).slice(0, 2).toUpperCase()}
+   472→            </AvatarFallback>
+   473→          </Avatar>
+   474→        </div>
+   475→        <div className="min-w-0 flex-1">
+   476→          <p className="truncate text-base font-semibold">
+   477→            {user.displayName || 'Unnamed user'}
+   478→          </p>
+   479→          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+   480→        </div>
+   481→      </div>
+   482→
+   483→      <div className="mt-3 flex flex-wrap gap-1.5">
+   484→        {user.role === 'admin' ? (
+   485→          <Badge className="gap-1 bg-brand/15 text-brand hover:bg-brand/20">
+   486→            <Crown className="h-3 w-3" /> admin
+   487→          </Badge>
+   488→        ) : (
+   489→          <Badge variant="outline" className="gap-1">
+   490→            <Shield className="h-3 w-3" /> user
+   491→          </Badge>
+   492→        )}
+   493→        <Badge
+   494→          variant="outline"
+   495→          className={
+   496→            user.status === 'active'
+   497→              ? 'border-brand/40 text-brand'
+   498→              : user.status === 'banned'
+   499→                ? 'border-destructive/40 text-destructive'
+   500→                : 'border-amber-500/40 text-amber-500'
+   501→          }
+   502→        >
+   503→          {user.status.replace('_', ' ')}
+   504→        </Badge>
+   505→        <Badge variant="outline" className="text-[10px]">
+   506→          joined {formatRelativeTime(user.createdAt)}
+   507→        </Badge>
+   508→      </div>
+   509→
+   510→      {/* API key */}
+   511→      <div className="mt-4 space-y-1.5">
+   512→        <div className="flex items-center justify-between">
+   513→          <Label className="text-xs text-muted-foreground flex items-center gap-1">
+   514→            <KeyRound className="h-3 w-3" /> API key
+   515→          </Label>
+   516→          <div className="flex gap-1">
+   517→            <Button
+   518→              size="icon"
+   519→              variant="ghost"
+   520→              className="h-6 w-6 hover:text-brand"
+   521→              onClick={() => setShowKey((v) => !v)}
+   522→              title={showKey ? 'Hide' : 'Show'}
+   523→            >
+   524→              {showKey ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+   525→            </Button>
+   526→            <Button
+   527→              size="icon"
+   528→              variant="ghost"
+   529→              className="h-6 w-6 hover:text-brand"
+   530→              onClick={copyKey}
+   531→              disabled={!user.apiKey}
+   532→              title="Copy"
+   533→            >
+   534→              {copiedKey ? <Check className="h-3 w-3 text-brand" /> : <Copy className="h-3 w-3" />}
+   535→            </Button>
+   536→            <Button
+   537→              size="icon"
+   538→              variant="ghost"
+   539→              className="h-6 w-6 hover:text-brand"
+   540→              onClick={regenerate}
+   541→              disabled={regenerating}
+   542→              title="Regenerate"
+   543→            >
+   544→              {regenerating ? (
+   545→                <Loader2 className="h-3 w-3 animate-spin" />
+   546→              ) : (
+   547→                <RefreshCw className="h-3 w-3" />
+   548→              )}
+   549→            </Button>
+   550→          </div>
+   551→        </div>
+   552→        <code className="block w-full truncate rounded-md border border-border/50 bg-muted/40 px-2 py-1.5 font-mono text-xs">
+   553→          {maskedKey}
+   554→        </code>
+   555→      </div>
+   556→
+   557→      <Separator className="my-4" />
+   558→
+   559→      {/* Edit profile */}
+   560→      <StaggerGroup stagger={0.04} className="space-y-2">
+   561→        <motion.div variants={fadeUp}>
+   562→          <Collapsible open={editOpen} onOpenChange={setEditOpen}>
+   563→            <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md px-1 py-1.5 text-sm font-medium transition-colors hover:bg-brand/5 hover:text-brand">
+   564→              <span className="flex items-center gap-2">
+   565→                <Pencil className="h-3.5 w-3.5" /> Edit profile
+   566→              </span>
+   567→              <ChevronDown
+   568→                className={
+   569→                  'h-4 w-4 transition-transform ' + (editOpen ? 'rotate-180' : '')
+   570→                }
+   571→              />
+   572→            </CollapsibleTrigger>
+   573→            <CollapsibleContent className="mt-2 space-y-2">
+   574→              <Label htmlFor="dn" className="text-xs">Display name</Label>
+   575→              <Input
+   576→                id="dn"
+   577→                value={displayName}
+   578→                onChange={(e) => setDisplayName(e.target.value)}
+   579→                placeholder="Your name"
+   580→                className="h-8 bg-muted/30 text-sm focus-visible:ring-2 focus-visible:ring-brand"
+   581→              />
+   582→              <Button
+   583→                size="sm"
+   584→                onClick={saveProfile}
+   585→                disabled={savingProfile}
+   586→                className="w-full gap-1.5 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-md shadow-brand/30"
+   587→              >
+   588→                {savingProfile && <Loader2 className="h-3 w-3 animate-spin" />} Save
+   589→              </Button>
+   590→            </CollapsibleContent>
+   591→          </Collapsible>
+   592→        </motion.div>
+   593→
+   594→        {/* Change password */}
+   595→        <motion.div variants={fadeUp}>
+   596→          <Collapsible open={pwOpen} onOpenChange={setPwOpen}>
+   597→            <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md px-1 py-1.5 text-sm font-medium transition-colors hover:bg-brand/5 hover:text-brand">
+   598→              <span className="flex items-center gap-2">
+   599→                <Lock className="h-3.5 w-3.5" /> Change password
+   600→              </span>
+   601→              <ChevronDown
+   602→                className={
+   603→                  'h-4 w-4 transition-transform ' + (pwOpen ? 'rotate-180' : '')
+   604→                }
+   605→              />
+   606→            </CollapsibleTrigger>
+   607→            <CollapsibleContent className="mt-2 space-y-2">
+   608→              <div>
+   609→                <Label htmlFor="cp" className="text-xs">Current password</Label>
+   610→                <Input
+   611→                  id="cp"
+   612→                  type="password"
+   613→                  value={currentPw}
+   614→                  onChange={(e) => setCurrentPw(e.target.value)}
+   615→                  className="h-8 bg-muted/30 text-sm focus-visible:ring-2 focus-visible:ring-brand"
+   616→                />
+   617→              </div>
+   618→              <div>
+   619→                <Label htmlFor="np" className="text-xs">New password</Label>
+   620→                <Input
+   621→                  id="np"
+   622→                  type="password"
+   623→                  value={newPw}
+   624→                  onChange={(e) => setNewPw(e.target.value)}
+   625→                  className="h-8 bg-muted/30 text-sm focus-visible:ring-2 focus-visible:ring-brand"
+   626→                />
+   627→              </div>
+   628→              <Button
+   629→                size="sm"
+   630→                onClick={savePassword}
+   631→                disabled={savingPw}
+   632→                className="w-full gap-1.5 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-md shadow-brand/30"
+   633→              >
+   634→                {savingPw && <Loader2 className="h-3 w-3 animate-spin" />} Update password
+   635→              </Button>
+   636→            </CollapsibleContent>
+   637→          </Collapsible>
+   638→        </motion.div>
+   639→      </StaggerGroup>
+   640→
+   641→      <Separator className="my-4" />
+   642→
+   643→      {/* Danger zone */}
+   644→      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+   645→        <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+   646→          <AlertTriangle className="h-4 w-4" /> Danger zone
+   647→        </div>
+   648→        <p className="text-xs text-muted-foreground">
+   649→          Permanently delete your account and all your pastes.
+   650→        </p>
+   651→        <Collapsible open={delOpen} onOpenChange={setDelOpen}>
+   652→          <CollapsibleTrigger asChild>
+   653→            <Button variant="destructive" size="sm" className="w-full gap-1.5">
+   654→              <Trash2 className="h-3 w-3" /> Delete account
+   655→            </Button>
+   656→          </CollapsibleTrigger>
+   657→          <CollapsibleContent className="mt-3 space-y-2">
+   658→            <Label htmlFor="dpw" className="text-xs">Confirm with your password</Label>
+   659→            <Input
+   660→              id="dpw"
+   661→              type="password"
+   662→              value={delPw}
+   663→              onChange={(e) => setDelPw(e.target.value)}
+   664→              className="h-8 bg-muted/30 text-sm focus-visible:ring-2 focus-visible:ring-destructive"
+   665→            />
+   666→            <AlertDialog>
+   667→              <AlertDialogTrigger asChild>
+   668→                <Button variant="destructive" size="sm" className="w-full" disabled={!delPw}>
+   669→                  Confirm permanent deletion
+   670→                </Button>
+   671→              </AlertDialogTrigger>
+   672→              <AlertDialogContent className="glass-strong">
+   673→                <AlertDialogHeader>
+   674→                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+   675→                  <AlertDialogDescription>
+   676→                    This will permanently delete your account and all associated pastes. This
+   677→                    action cannot be undone.
+   678→                  </AlertDialogDescription>
+   679→                </AlertDialogHeader>
+   680→                <AlertDialogFooter>
+   681→                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+   682→                  <AlertDialogAction
+   683→                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   684→                    onClick={deleteAccount}
+   685→                    disabled={deleting}
+   686→                  >
+   687→                    {deleting && <Loader2 className="h-3 w-3 animate-spin mr-1" />} Delete forever
+   688→                  </AlertDialogAction>
+   689→                </AlertDialogFooter>
+   690→              </AlertDialogContent>
+   691→            </AlertDialog>
+   692→          </CollapsibleContent>
+   693→        </Collapsible>
+   694→      </div>
+   695→    </div>
+   696→  )
+   697→}
+   698→
+   699→function EditPasteDialog({
+   700→  paste,
+   701→  onClose,
+   702→  onSaved,
+   703→}: {
+   704→  paste: SafePaste
+   705→  onClose: () => void
+   706→  onSaved: () => void
+   707→}) {
+   708→  const [title, setTitle] = useState(paste.title || '')
+   709→  const [description, setDescription] = useState(paste.description || '')
+   710→  const [tags, setTags] = useState(paste.tags.join(', '))
+   711→  const [language, setLanguage] = useState(paste.language)
+   712→  const [visibility, setVisibility] = useState(paste.visibility)
+   713→  const [expiryPreset, setExpiryPreset] = useState('never')
+   714→  const [burnAfterRead, setBurnAfterRead] = useState(paste.burnAfterRead)
+   715→  const [saving, setSaving] = useState(false)
+   716→
+   717→  async function save() {
+   718→    setSaving(true)
+   719→    try {
+   720→      const patch: Record<string, unknown> = {
+   721→        title,
+   722→        description,
+   723→        tags,
+   724→        language,
+   725→        visibility,
+   726→        burnAfterRead,
+   727→      }
+   728→      if (expiryPreset !== 'never') patch.expiryPreset = expiryPreset
+   729→      await api.updatePaste(paste.id, patch)
+   730→      toast.success('Paste updated')
+   731→      onSaved()
+   732→    } catch (err) {
+   733→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+   734→    } finally {
+   735→      setSaving(false)
+   736→    }
+   737→  }
+   738→
+   739→  return (
+   740→    <Dialog open onOpenChange={(o) => !o && onClose()}>
+   741→      <DialogContent className="glass-strong sm:max-w-lg max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30">
+   742→        <DialogHeader>
+   743→          <DialogTitle className="text-gradient">Edit paste</DialogTitle>
+   744→          <DialogDescription>
+   745→            <code className="font-mono text-xs">/{paste.slug}</code> · created{' '}
+   746→            {formatDate(paste.createdAt)}
+   747→          </DialogDescription>
+   748→        </DialogHeader>
+   749→
+   750→        <div className="space-y-3">
+   751→          <div>
+   752→            <Label htmlFor="ep-title" className="text-xs">Title</Label>
+   753→            <Input
+   754→              id="ep-title"
+   755→              value={title}
+   756→              onChange={(e) => setTitle(e.target.value)}
+   757→              className="bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand"
+   758→            />
+   759→          </div>
+   760→          <div>
+   761→            <Label htmlFor="ep-desc" className="text-xs">Description</Label>
+   762→            <Textarea
+   763→              id="ep-desc"
+   764→              value={description}
+   765→              onChange={(e) => setDescription(e.target.value)}
+   766→              rows={2}
+   767→              className="bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand"
+   768→            />
+   769→          </div>
+   770→          <div>
+   771→            <Label htmlFor="ep-tags" className="text-xs">Tags (comma-separated)</Label>
+   772→            <Input
+   773→              id="ep-tags"
+   774→              value={tags}
+   775→              onChange={(e) => setTags(e.target.value)}
+   776→              placeholder="react, api, draft"
+   777→              className="bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand"
+   778→            />
+   779→          </div>
+   780→          <div className="grid grid-cols-2 gap-3">
+   781→            <div>
+   782→              <Label className="text-xs">Language</Label>
+   783→              <Select value={language} onValueChange={setLanguage}>
+   784→                <SelectTrigger className="w-full bg-muted/30">
+   785→                  <SelectValue />
+   786→                </SelectTrigger>
+   787→                <SelectContent className="max-h-72">
+   788→                  {LANGUAGES.map((l, i) => (
+   789→                    <SelectItem key={`${l.value}-${i}`} value={l.value}>
+   790→                      {l.label}
+   791→                    </SelectItem>
+   792→                  ))}
+   793→                </SelectContent>
+   794→              </Select>
+   795→            </div>
+   796→            <div>
+   797→              <Label className="text-xs">Visibility</Label>
+   798→              <Select value={visibility} onValueChange={setVisibility}>
+   799→                <SelectTrigger className="w-full bg-muted/30">
+   800→                  <SelectValue />
+   801→                </SelectTrigger>
+   802→                <SelectContent>
+   803→                  <SelectItem value="public">Public</SelectItem>
+   804→                  <SelectItem value="unlisted">Unlisted</SelectItem>
+   805→                  <SelectItem value="private">Private</SelectItem>
+   806→                </SelectContent>
+   807→              </Select>
+   808→            </div>
+   809→          </div>
+   810→          <div>
+   811→            <Label className="text-xs">Expiry</Label>
+   812→            <Select value={expiryPreset} onValueChange={setExpiryPreset}>
+   813→              <SelectTrigger className="w-full bg-muted/30">
+   814→                <SelectValue />
+   815→              </SelectTrigger>
+   816→              <SelectContent>
+   817→                {EXPIRY_OPTIONS.map((o) => (
+   818→                  <SelectItem key={o.value} value={o.value}>
+   819→                    {o.label}
+   820→                  </SelectItem>
+   821→                ))}
+   822→              </SelectContent>
+   823→            </Select>
+   824→          </div>
+   825→          <div className="flex items-center justify-between rounded-md border border-border/50 bg-muted/20 p-3">
+   826→            <div>
+   827→              <p className="text-sm font-medium">Burn after read</p>
+   828→              <p className="text-xs text-muted-foreground">Delete the paste once it&apos;s viewed.</p>
+   829→            </div>
+   830→            <Switch checked={burnAfterRead} onCheckedChange={setBurnAfterRead} />
+   831→          </div>
+   832→        </div>
+   833→
+   834→        <DialogFooter>
+   835→          <Button variant="outline" onClick={onClose}>
+   836→            Cancel
+   837→          </Button>
+   838→          <Button
+   839→            onClick={save}
+   840→            disabled={saving}
+   841→            className="btn-shine gap-1.5 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-md shadow-brand/30"
+   842→          >
+   843→            {saving && <Loader2 className="h-3 w-3 animate-spin" />} Save changes
+   844→          </Button>
+   845→        </DialogFooter>
+   846→      </DialogContent>
+   847→    </Dialog>
+   848→  )
+   849→}
+   850→

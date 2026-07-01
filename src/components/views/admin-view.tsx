@@ -1,13 +1,10 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
-  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -16,12 +13,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Separator } from '@/components/ui/separator'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table,
@@ -42,7 +35,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -57,43 +49,46 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  Shield,
-  ShieldAlert,
-  Users as UsersIcon,
+  Activity,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Ban,
+  CheckCircle2,
+  Eye,
   FileText,
-  HardDrive,
   Flag,
   Flame,
-  Search,
-  MoreHorizontal,
-  CheckCircle2,
-  Ban,
-  Pause,
-  Trash2,
-  ArrowUpCircle,
-  ArrowDownCircle,
-  Crown,
+  HardDrive,
   Loader2,
   Lock,
+  MoreHorizontal,
+  Pause,
   Save,
-  Activity,
-  ChevronDown,
-  ChevronRight,
-  Eye,
+  Search,
   Settings as SettingsIcon,
+  Shield,
+  ShieldAlert,
+  Trash2,
+  Users as UsersIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
-import { formatBytes, formatRelativeTime, formatDate, EXPIRY_OPTIONS } from '@/lib/ui-utils'
 import {
+  EXPIRY_OPTIONS,
+  formatBytes,
+  formatDate,
+  formatRelativeTime,
+} from '@/lib/ui-utils'
+import {
+  AnimatedNumber,
   Reveal,
   StaggerGroup,
-  AnimatedNumber,
   fadeUp,
   scaleIn,
+  staggerContainer,
 } from '@/components/motion-helpers'
-import type { SafePaste, SafeUser, SafeAuditLog } from '@/lib/types'
+import type { SafeAuditLog, SafePaste, SafeUser } from '@/lib/types'
 
 type Analytics = {
   totalUsers: number
@@ -113,33 +108,30 @@ type UserRow = SafeUser & { pasteCount?: number }
 const SCROLLBAR_CLASS =
   '[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30'
 
-// Brand chart colors (no indigo/blue)
-const C = {
-  brand: 'oklch(0.7 0.18 162)',
-  brand2: 'oklch(0.65 0.22 300)',
-  amber: 'oklch(0.75 0.2 50)',
-  rose: 'oklch(0.68 0.22 22)',
-  fuchsia: 'oklch(0.7 0.2 330)',
-}
+const BRAND_LIME = 'oklch(0.8 0.2 125)'
+
+const INPUT_CLASS =
+  'bg-surface-3 border-border rounded-md focus-visible:ring-brand text-sm'
 
 export function AdminView() {
-  const { user, goHome } = useAppStore()
+  const user = useAppStore((s) => s.user)
+  const goHome = useAppStore((s) => s.goHome)
 
   if (!user || user.role !== 'admin') {
     return (
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
+      <div className="mx-auto max-w-6xl px-4 py-8 md:py-10 sm:px-6">
         <Reveal variant={fadeUp} className="mx-auto mt-12 max-w-md">
-          <div className="glass-strong gradient-border rounded-2xl p-8 text-center glow-brand">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
-              <Lock className="h-7 w-7 text-destructive" />
+          <div className="surface rounded-2xl p-12 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
+              <Lock className="h-6 w-6" />
             </div>
-            <h2 className="text-xl font-semibold tracking-tight">Admin only</h2>
+            <h2 className="text-lg font-semibold tracking-tight">Admin only</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               You don&apos;t have permission to access the admin panel.
             </p>
             <Button
               onClick={goHome}
-              className="btn-shine mt-5 gap-2 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-lg shadow-brand/30"
+              className="btn-shine mt-5 bg-brand text-brand-foreground hover:bg-brand/90"
             >
               Back to home
             </Button>
@@ -156,46 +148,61 @@ function AdminInner() {
   const [tab, setTab] = useState('overview')
 
   const TABS: { value: string; label: string; icon: ReactNode }[] = [
-    { value: 'overview', label: 'Overview', icon: <Activity className="h-4 w-4" /> },
-    { value: 'users', label: 'Users', icon: <UsersIcon className="h-4 w-4" /> },
-    { value: 'content', label: 'Content', icon: <FileText className="h-4 w-4" /> },
-    { value: 'settings', label: 'Settings', icon: <SettingsIcon className="h-4 w-4" /> },
-    { value: 'audit', label: 'Audit Log', icon: <ShieldAlert className="h-4 w-4" /> },
+    {
+      value: 'overview',
+      label: 'Overview',
+      icon: <Activity className="h-3.5 w-3.5" />,
+    },
+    { value: 'users', label: 'Users', icon: <UsersIcon className="h-3.5 w-3.5" /> },
+    {
+      value: 'content',
+      label: 'Content',
+      icon: <FileText className="h-3.5 w-3.5" />,
+    },
+    {
+      value: 'settings',
+      label: 'Settings',
+      icon: <SettingsIcon className="h-3.5 w-3.5" />,
+    },
+    {
+      value: 'audit',
+      label: 'Audit Log',
+      icon: <ShieldAlert className="h-3.5 w-3.5" />,
+    },
   ]
 
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
+    <div className="mx-auto max-w-6xl px-4 py-8 md:py-10 sm:px-6">
       {/* Header */}
-      <Reveal variant={fadeUp} className="mb-6 flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-brand-2 shadow-lg shadow-brand/30">
-          <Shield className="h-6 w-6 text-brand-foreground" />
+      <Reveal variant={fadeUp} className="mb-8">
+        <p className="font-mono text-xs text-brand">
+          <span className="text-muted-foreground">{'>'}</span> sudo admin
+        </p>
+        <div className="mt-1 flex items-center gap-3">
+          <h1 className="text-3xl font-semibold tracking-tight">Admin</h1>
+          <span className="brand-dot" />
         </div>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            <span className="text-gradient">Admin Panel</span>
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Manage users, content, and site settings.
-          </p>
-        </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage users, content, and site settings.
+        </p>
       </Reveal>
 
       <Tabs
         value={tab}
         onValueChange={setTab}
         orientation="vertical"
-        className="flex flex-col gap-4 lg:flex-row"
+        className="flex flex-col gap-6 lg:flex-row"
       >
         <Reveal variant={fadeUp} delay={0.05}>
-          <TabsList className="glass grid h-fit w-full grid-cols-5 gap-1 rounded-xl p-1.5 lg:flex lg:w-56 lg:flex-col lg:grid-cols-1">
+          <TabsList className="grid h-fit w-full grid-cols-5 gap-1 rounded-xl bg-transparent p-0 lg:flex lg:w-56 lg:flex-col lg:grid-cols-1">
             {TABS.map((t) => (
               <TabsTrigger
                 key={t.value}
                 value={t.value}
-                className="justify-start gap-2 rounded-lg px-3 py-2 text-xs transition-all data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand data-[state=active]:to-brand-2 data-[state=active]:text-brand-foreground data-[state=active]:shadow-lg data-[state=active]:shadow-brand/20 lg:text-sm"
+                className="font-mono flex items-center justify-start gap-2 rounded-md border-b-2 border-transparent px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-l-2 data-[state=active]:border-b-transparent data-[state=active]:border-l-brand data-[state=active]:bg-brand/10 data-[state=active]:text-brand data-[state=active]:shadow-none lg:border-b-0 lg:border-l-2"
               >
                 {t.icon}
-                <span className="hidden sm:inline lg:inline">{t.label}</span>
+                <span>{t.label}</span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -223,7 +230,7 @@ function AdminInner() {
   )
 }
 
-// ---------------- Overview ----------------
+/* ---------------- Overview ---------------- */
 
 function OverviewTab() {
   const [data, setData] = useState<Analytics | null>(null)
@@ -251,16 +258,19 @@ function OverviewTab() {
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-28 rounded-2xl" />
+          <div key={i} className="shimmer surface h-28 rounded-xl" />
         ))}
-        <Skeleton className="h-64 rounded-2xl sm:col-span-2 lg:col-span-4" />
+        <div className="shimmer surface h-64 rounded-xl sm:col-span-2 lg:col-span-4" />
       </div>
     )
   }
 
   const traffic = data.traffic.map((t) => ({
     ...t,
-    label: new Date(t.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    label: new Date(t.date).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    }),
   }))
 
   const maxLang = data.topLanguages.reduce((m, l) => Math.max(m, l.count), 1)
@@ -268,67 +278,69 @@ function OverviewTab() {
   return (
     <div className="space-y-4">
       {/* KPI cards */}
-      <StaggerGroup stagger={0.08} className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Reveal variants={scaleIn}>
+      <StaggerGroup stagger={0.07} className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Reveal variant={scaleIn}>
           <KpiCard
             label="Total users"
             value={data.totalUsers}
-            icon={<UsersIcon className="h-5 w-5" />}
-            gradient="from-brand to-brand-2"
+            icon={<UsersIcon className="h-4 w-4" />}
+            accent
           />
         </Reveal>
-        <Reveal variants={scaleIn}>
+        <Reveal variant={scaleIn}>
           <KpiCard
             label="Active pastes"
             value={data.totalActivePastes}
-            icon={<FileText className="h-5 w-5" />}
-            gradient="from-brand-2 to-fuchsia-500"
+            icon={<FileText className="h-4 w-4" />}
           />
         </Reveal>
-        <Reveal variants={scaleIn}>
+        <Reveal variant={scaleIn}>
           <KpiCard
             label="Total files"
             value={data.totalFiles}
-            icon={<HardDrive className="h-5 w-5" />}
-            gradient="from-amber-500 to-brand"
+            icon={<HardDrive className="h-4 w-4" />}
           />
         </Reveal>
-        <Reveal variants={scaleIn}>
+        <Reveal variant={scaleIn}>
           <KpiCard
             label="Storage used"
             value={data.storageUsedBytes}
             format={(n) => formatBytes(n)}
-            icon={<HardDrive className="h-5 w-5" />}
-            gradient="from-rose-500 to-brand-2"
+            icon={<HardDrive className="h-4 w-4" />}
+            accent
           />
         </Reveal>
       </StaggerGroup>
 
       {/* Secondary stat cards */}
       <StaggerGroup stagger={0.06} className="grid gap-4 sm:grid-cols-2">
-        <Reveal variants={scaleIn}>
-          <div className="glass lift glow-brand-hover flex items-center gap-4 rounded-2xl p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/15 text-amber-500">
+        <Reveal variant={scaleIn}>
+          <div className="surface lift flex items-center gap-4 rounded-xl p-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/15 text-amber-500">
               <Flag className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-2xl font-bold tracking-tight">
+              <p className="text-2xl font-semibold">
                 <AnimatedNumber value={data.flaggedCount} />
               </p>
-              <p className="text-xs text-muted-foreground">Flagged content</p>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Flagged content
+              </p>
             </div>
           </div>
         </Reveal>
-        <Reveal variants={scaleIn}>
-          <div className="glass lift glow-brand-hover flex items-center gap-4 rounded-2xl p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-500/15 text-rose-500">
+        <Reveal variant={scaleIn}>
+          <div className="surface lift flex items-center gap-4 rounded-xl p-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-2/15 text-brand-2">
               <Flame className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-2xl font-bold tracking-tight">
+              <p className="text-2xl font-semibold">
                 <AnimatedNumber value={data.burnedCount} />
               </p>
-              <p className="text-xs text-muted-foreground">Burned pastes</p>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Burned pastes
+              </p>
             </div>
           </div>
         </Reveal>
@@ -337,23 +349,25 @@ function OverviewTab() {
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Reveal variant={fadeUp} className="lg:col-span-2">
-          <div className="glass rounded-2xl p-5">
+          <div className="surface rounded-xl p-5">
             <div className="mb-4 flex items-baseline justify-between">
-              <div>
-                <h3 className="text-base font-semibold">Paste creation — last 14 days</h3>
-                <p className="text-xs text-muted-foreground">Daily new pastes across the platform.</p>
-              </div>
+              <h3 className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                paste creation — 14d
+              </h3>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span className="h-2 w-2 rounded-full bg-brand" /> daily count
               </div>
             </div>
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={traffic} margin={{ top: 5, right: 8, bottom: 0, left: -20 }}>
+                <AreaChart
+                  data={traffic}
+                  margin={{ top: 5, right: 8, bottom: 0, left: -20 }}
+                >
                   <defs>
                     <linearGradient id="trafficFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={C.brand} stopOpacity={0.45} />
-                      <stop offset="100%" stopColor={C.brand} stopOpacity={0} />
+                      <stop offset="0%" stopColor={BRAND_LIME} stopOpacity={0.45} />
+                      <stop offset="100%" stopColor={BRAND_LIME} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <XAxis
@@ -370,15 +384,20 @@ function OverviewTab() {
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip content={<GlassTooltip />} />
+                  <Tooltip content={<ChartTooltip />} />
                   <Area
                     type="monotone"
                     dataKey="count"
-                    stroke={C.brand}
+                    stroke={BRAND_LIME}
                     strokeWidth={2.5}
                     fill="url(#trafficFill)"
                     dot={false}
-                    activeDot={{ r: 5, fill: C.brand, stroke: 'white', strokeWidth: 2 }}
+                    activeDot={{
+                      r: 5,
+                      fill: BRAND_LIME,
+                      stroke: 'white',
+                      strokeWidth: 2,
+                    }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -387,28 +406,30 @@ function OverviewTab() {
         </Reveal>
 
         <Reveal variant={fadeUp} delay={0.05}>
-          <div className="glass h-full rounded-2xl p-5">
-            <div className="mb-4">
-              <h3 className="text-base font-semibold">Top languages</h3>
-              <p className="text-xs text-muted-foreground">By paste count.</p>
-            </div>
+          <div className="surface h-full rounded-xl p-5">
+            <h3 className="font-mono mb-4 text-[11px] uppercase tracking-wider text-muted-foreground">
+              top languages
+            </h3>
             {data.topLanguages.length === 0 ? (
-              <p className="py-12 text-center text-sm text-muted-foreground">No data yet.</p>
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                No data yet.
+              </p>
             ) : (
               <div className="space-y-2.5">
-                {data.topLanguages.slice(0, 8).map((l, i) => (
+                {data.topLanguages.slice(0, 8).map((l) => (
                   <div key={l.language} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono text-muted-foreground">{l.language}</span>
-                      <span className="font-semibold">{l.count}</span>
+                      <span className="font-mono text-foreground">
+                        {l.language}
+                      </span>
+                      <span className="text-muted-foreground">{l.count}</span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-muted/40">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-brand/20">
                       <motion.div
                         initial={{ width: 0 }}
-                        whileInView={{ width: `${(l.count / maxLang) * 100}%` }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.8, delay: i * 0.05, ease: [0.2, 0.8, 0.2, 1] }}
-                        className="h-full rounded-full bg-gradient-to-r from-brand to-brand-2"
+                        animate={{ width: `${(l.count / maxLang) * 100}%` }}
+                        transition={{ duration: 0.8, ease: [0.2, 0.8, 0.2, 1] }}
+                        className="h-full rounded-full bg-brand"
                       />
                     </div>
                   </div>
@@ -426,85 +447,72 @@ function KpiCard({
   label,
   value,
   icon,
-  gradient,
   format,
+  accent,
 }: {
   label: string
   value: number
   icon: ReactNode
-  gradient: string
   format?: (n: number) => string
+  accent?: boolean
 }) {
   return (
-    <div className="glass lift glow-brand-hover rounded-2xl p-5">
-      <div
-        className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${gradient} text-white shadow-md`}
+    <div className="surface lift rounded-xl p-5">
+      <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+      <p
+        className={`mt-2 text-2xl font-semibold ${
+          accent ? 'text-brand' : 'text-foreground'
+        }`}
       >
-        {icon}
-      </div>
-      <p className="text-3xl font-bold tracking-tight">
         <AnimatedNumber value={value} format={format} />
       </p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+      <div className="mt-3 text-muted-foreground">{icon}</div>
     </div>
   )
 }
 
-interface TooltipEntry {
-  name?: string | number
-  value?: string | number
-  color?: string
-}
-
-function GlassTooltip({
+function ChartTooltip({
   active,
   payload,
   label,
 }: {
   active?: boolean
-  payload?: TooltipEntry[]
-  label?: string | number
+  payload?: { value: number }[]
+  label?: string
 }) {
-  if (!active || !payload || !payload.length) return null
+  if (!active || !payload || payload.length === 0) return null
   return (
-    <div className="glass-strong rounded-lg border border-border/50 px-3 py-2 text-xs shadow-lg">
-      {label !== undefined && label !== '' && (
-        <p className="mb-1 font-medium text-foreground">{label}</p>
-      )}
-      {payload.map((p, i) => (
-        <p key={i} className="flex items-center gap-1.5 text-muted-foreground">
-          <span className="h-2 w-2 rounded-full" style={{ background: p.color }} />
-          <span className="font-semibold text-foreground">{p.value}</span>
-        </p>
-      ))}
+    <div className="surface-2 rounded-md p-2 text-xs">
+      <p className="font-mono text-muted-foreground">{label}</p>
+      <p className="mt-0.5 font-semibold text-brand">{payload[0].value} pastes</p>
     </div>
   )
 }
 
-// ---------------- Users ----------------
-
-const STATUS_OPTIONS = [
-  { value: 'all', label: 'All statuses' },
-  { value: 'active', label: 'Active' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'banned', label: 'Banned' },
-  { value: 'pending_verification', label: 'Pending verification' },
-]
+/* ---------------- Users ---------------- */
 
 function UsersTab() {
-  const me = useAppStore((s) => s.user)
-  const [q, setQ] = useState('')
-  const [status, setStatus] = useState('all')
+  const me = useAppStore((s) => s.user)!
   const [rows, setRows] = useState<UserRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  const [q, setQ] = useState('')
+  const [status, setStatus] = useState<string>('all')
+  const [confirm, setConfirm] = useState<{
+    user: UserRow
+    action: 'delete' | 'ban' | 'suspend'
+  } | null>(null)
+  const [busy, setBusy] = useState(false)
 
   async function fetchUsers() {
     setLoading(true)
     try {
-      const data = await api.admin.listUsers(q || undefined, status === 'all' ? undefined : status)
-      setRows(data)
+      const r = await api.admin.listUsers(
+        q || undefined,
+        status === 'all' ? undefined : status,
+      )
+      setRows(r)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Failed to load users.')
     } finally {
@@ -513,219 +521,325 @@ function UsersTab() {
   }
 
   useEffect(() => {
-    const t = setTimeout(fetchUsers, 250)
-    return () => clearTimeout(t)
-  }, [q, status])
+    fetchUsers()
+  }, [status])
 
-  async function update(id: string, patch: Parameters<typeof api.admin.updateUser>[1]) {
-    if (me && id === me.id) {
-      const risky =
-        patch.status === 'banned' ||
-        patch.status === 'suspended' ||
-        patch.role === 'user'
-      if (risky) {
-        toast.error("You can't modify your own role or status.")
-        return
-      }
+  async function patchUser(
+    u: UserRow,
+    patch: { status?: string; role?: string; verify?: boolean },
+  ) {
+    if (u.id === me.id && (patch.status === 'banned' || patch.status === 'suspended')) {
+      toast.error('You cannot suspend or ban yourself.')
+      return
     }
     try {
-      await api.admin.updateUser(id, patch)
-      toast.success('User updated')
-      fetchUsers()
+      const res = await api.admin.updateUser(u.id, patch)
+      const updated = res[0] as UserRow | undefined
+      if (updated) {
+        setRows((cur) => cur.map((x) => (x.id === u.id ? { ...x, ...updated } : x)))
+        toast.success('User updated')
+      }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Update failed.')
     }
   }
 
-  async function doDelete() {
-    if (!deleteTarget) return
-    if (me && deleteTarget.id === me.id) {
-      toast.error("You can't delete your own account from here.")
-      setDeleteTarget(null)
-      return
-    }
-    setDeleting(true)
+  async function doConfirm() {
+    if (!confirm) return
+    setBusy(true)
     try {
-      await api.admin.deleteUser(deleteTarget.id)
-      toast.success('User deleted')
-      fetchUsers()
+      if (confirm.action === 'delete') {
+        if (confirm.user.id === me.id) {
+          toast.error('You cannot delete yourself.')
+          return
+        }
+        await api.admin.deleteUser(confirm.user.id)
+        setRows((cur) => cur.filter((x) => x.id !== confirm.user.id))
+        toast.success('User deleted')
+      } else if (confirm.action === 'ban') {
+        if (confirm.user.id === me.id) {
+          toast.error('You cannot ban yourself.')
+          return
+        }
+        const res = await api.admin.updateUser(confirm.user.id, { status: 'banned' })
+        const updated = res[0] as UserRow | undefined
+        if (updated)
+          setRows((cur) =>
+            cur.map((x) => (x.id === confirm.user.id ? { ...x, ...updated } : x)),
+          )
+        toast.success('User banned')
+      } else if (confirm.action === 'suspend') {
+        if (confirm.user.id === me.id) {
+          toast.error('You cannot suspend yourself.')
+          return
+        }
+        const res = await api.admin.updateUser(confirm.user.id, { status: 'suspended' })
+        const updated = res[0] as UserRow | undefined
+        if (updated)
+          setRows((cur) =>
+            cur.map((x) => (x.id === confirm.user.id ? { ...x, ...updated } : x)),
+          )
+        toast.success('User suspended')
+      }
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+      toast.error(err instanceof ApiError ? err.message : 'Action failed.')
     } finally {
-      setDeleting(false)
-      setDeleteTarget(null)
+      setBusy(false)
+      setConfirm(null)
     }
   }
 
   return (
     <div className="space-y-4">
-      <div className="glass flex flex-wrap items-center gap-2 rounded-xl p-3">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by name or email…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="bg-muted/30 pl-9 focus-visible:ring-2 focus-visible:ring-brand"
-          />
+      {/* Filter bar */}
+      <Reveal variant={fadeUp}>
+        <div className="surface flex flex-wrap items-center gap-2 rounded-xl p-3">
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by email or name…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && fetchUsers()}
+              className={`${INPUT_CLASS} pl-9`}
+            />
+          </div>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className={`${INPUT_CLASS} w-[140px]`}>
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="pending_verification">Pending</SelectItem>
+              <SelectItem value="suspended">Suspended</SelectItem>
+              <SelectItem value="banned">Banned</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={fetchUsers}
+            className="bg-brand text-brand-foreground hover:bg-brand/90"
+            size="sm"
+          >
+            <Search className="h-3.5 w-3.5" /> Search
+          </Button>
         </div>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-[200px] bg-muted/30">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      </Reveal>
 
-      <div className={`glass overflow-hidden rounded-2xl ${SCROLLBAR_CLASS}`}>
-        <div className="max-h-[60vh] overflow-y-auto">
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur">
-              <TableRow className="border-border/50 hover:bg-transparent">
-                <TableHead>User</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Pastes</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="w-10"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                [0, 1, 2, 3].map((i) => (
-                  <TableRow key={i}>
-                    <TableCell colSpan={6}>
-                      <Skeleton className="h-8 w-full" />
+      {/* Table */}
+      <Reveal variant={fadeUp} delay={0.05}>
+        <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    User
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Role
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Status
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Pastes
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Created
+                  </TableHead>
+                  <TableHead className="px-4" />
+                </TableRow>
+              </TableHeader>
+              <motion.tbody
+                variants={staggerContainer(0.04)}
+                initial="hidden"
+                animate="show"
+              >
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+                      Loading users…
                     </TableCell>
                   </TableRow>
-                ))
-              ) : rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
-                    No users found.
-                  </TableCell>
-                </TableRow>
+                ) : rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                      No users found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rows.map((u) => {
+                    const uname = u.displayName || u.email.split('@')[0]
+                    const initials = uname.slice(0, 2).toUpperCase()
+                    const isSelf = u.id === me.id
+                    return (
+                      <motion.tr
+                        key={u.id}
+                        variants={fadeUp}
+                        className="border-border border-b transition-colors hover:bg-surface-3"
+                      >
+                        <TableCell className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-2 text-[10px] font-bold text-brand-foreground">
+                              {initials}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">
+                                {uname}
+                                {isSelf && (
+                                  <span className="ml-1.5 text-[10px] text-brand">(you)</span>
+                                )}
+                              </p>
+                              <p className="truncate text-[11px] text-muted-foreground">
+                                {u.email}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <RoleBadge role={u.role} />
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <UserStatusBadge status={u.status} />
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-xs">
+                          {u.pasteCount ?? 0}
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                          {formatRelativeTime(u.createdAt)}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              {u.status !== 'active' && (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    patchUser(u, { status: 'active' })
+                                  }
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5" /> Activate
+                                </DropdownMenuItem>
+                              )}
+                              {u.status !== 'suspended' && !isSelf && (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setConfirm({ user: u, action: 'suspend' })
+                                  }
+                                >
+                                  <Pause className="h-3.5 w-3.5" /> Suspend
+                                </DropdownMenuItem>
+                              )}
+                              {u.status !== 'banned' && !isSelf && (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setConfirm({ user: u, action: 'ban' })
+                                  }
+                                >
+                                  <Ban className="h-3.5 w-3.5" /> Ban
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuSeparator />
+                              {u.role !== 'admin' ? (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    patchUser(u, { role: 'admin' })
+                                  }
+                                >
+                                  <ArrowUpCircle className="h-3.5 w-3.5" /> Promote to admin
+                                </DropdownMenuItem>
+                              ) : (
+                                !isSelf && (
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      patchUser(u, { role: 'user' })
+                                    }
+                                  >
+                                    <ArrowDownCircle className="h-3.5 w-3.5" /> Demote to user
+                                  </DropdownMenuItem>
+                                )
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                variant="destructive"
+                                disabled={isSelf}
+                                onClick={() =>
+                                  setConfirm({ user: u, action: 'delete' })
+                                }
+                              >
+                                <Trash2 className="h-3.5 w-3.5" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </motion.tr>
+                    )
+                  })
+                )}
+              </motion.tbody>
+            </Table>
+          </div>
+        </div>
+      </Reveal>
+
+      {/* Confirm dialog */}
+      <AlertDialog
+        open={!!confirm}
+        onOpenChange={(o) => !o && setConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirm?.action === 'delete'
+                ? 'Delete user?'
+                : confirm?.action === 'ban'
+                  ? 'Ban user?'
+                  : 'Suspend user?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirm?.action === 'delete' ? (
+                <>
+                  This will permanently delete{' '}
+                  <span className="font-mono text-foreground">
+                    {confirm?.user.email}
+                  </span>{' '}
+                  and all their pastes. This cannot be undone.
+                </>
               ) : (
                 <>
-                  {rows.map((u, i) => (
-                    <motion.tr
-                      key={u.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.04, duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
-                      className="border-b border-border/30 transition-colors hover:bg-brand/5"
-                    >
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Avatar className="h-8 w-8">
-                            <AvatarFallback className="bg-gradient-to-br from-brand to-brand-2 text-[10px] text-brand-foreground">
-                              {(u.displayName || u.email).slice(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">
-                              {u.displayName || 'Unnamed'}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">{u.email}</p>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {u.role === 'admin' ? (
-                          <Badge className="gap-1 bg-brand/15 text-brand hover:bg-brand/20">
-                            <Crown className="h-3 w-3" /> admin
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline">user</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={u.status} />
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-sm">
-                        {u.pasteCount ?? 0}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {formatRelativeTime(u.createdAt)}
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-brand">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-48">
-                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            {u.status !== 'active' && (
-                              <DropdownMenuItem
-                                onClick={() => update(u.id, { status: 'active', verify: true })}
-                              >
-                                <CheckCircle2 className="mr-2 h-3.5 w-3.5" /> Verify / activate
-                              </DropdownMenuItem>
-                            )}
-                            {u.status !== 'suspended' && (
-                              <DropdownMenuItem onClick={() => update(u.id, { status: 'suspended' })}>
-                                <Pause className="mr-2 h-3.5 w-3.5" /> Suspend
-                              </DropdownMenuItem>
-                            )}
-                            {u.status !== 'banned' && (
-                              <DropdownMenuItem onClick={() => update(u.id, { status: 'banned' })}>
-                                <Ban className="mr-2 h-3.5 w-3.5" /> Ban
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuSeparator />
-                            {u.role !== 'admin' ? (
-                              <DropdownMenuItem onClick={() => update(u.id, { role: 'admin' })}>
-                                <ArrowUpCircle className="mr-2 h-3.5 w-3.5" /> Make admin
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem onClick={() => update(u.id, { role: 'user' })}>
-                                <ArrowDownCircle className="mr-2 h-3.5 w-3.5" /> Demote to user
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => setDeleteTarget(u)}
-                            >
-                              <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </motion.tr>
-                  ))}
+                  {confirm?.action === 'ban'
+                    ? 'Banned users cannot log in.'
+                    : 'Suspended users cannot log in until reactivated.'}
                 </>
               )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <AlertDialogContent className="glass-strong">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete user?</AlertDialogTitle>
-            <AlertDialogDescription>
-              &quot;{deleteTarget?.displayName || deleteTarget?.email}&quot; will be permanently
-              deleted along with their data. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={doDelete}
-              disabled={deleting}
+              className={
+                confirm?.action === 'delete'
+                  ? 'bg-destructive text-white hover:bg-destructive/90'
+                  : 'bg-amber-500 text-white hover:bg-amber-500/90'
+              }
+              onClick={doConfirm}
+              disabled={busy}
             >
-              {deleting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />} Delete
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : confirm?.action === 'delete' ? (
+                'Delete'
+              ) : confirm?.action === 'ban' ? (
+                'Ban'
+              ) : (
+                'Suspend'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -734,246 +848,336 @@ function UsersTab() {
   )
 }
 
-function StatusBadge({ status }: { status: SafeUser['status'] }) {
-  const map: Record<
-    SafeUser['status'],
-    { label: string; cls: string }
-  > = {
-    active: { label: 'active', cls: 'border-brand/40 text-brand' },
-    pending_verification: {
-      label: 'pending',
-      cls: 'border-amber-500/40 text-amber-500',
-    },
-    suspended: {
-      label: 'suspended',
-      cls: 'border-amber-500/40 text-amber-500',
-    },
-    banned: { label: 'banned', cls: 'border-destructive/40 text-destructive' },
-  }
-  const v = map[status]
-  return <Badge variant="outline" className={v.cls}>{v.label}</Badge>
+function RoleBadge({ role }: { role: SafeUser['role'] }) {
+  if (role === 'admin')
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+        <Shield className="h-2.5 w-2.5" /> admin
+      </span>
+    )
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      user
+    </span>
+  )
 }
 
-// ---------------- Content ----------------
+function UserStatusBadge({ status }: { status: SafeUser['status'] }) {
+  if (status === 'active')
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+        active
+      </span>
+    )
+  if (status === 'suspended')
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
+        suspended
+      </span>
+    )
+  if (status === 'banned')
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+        banned
+      </span>
+    )
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      pending
+    </span>
+  )
+}
+
+/* ---------------- Content ---------------- */
 
 function ContentTab() {
+  const [rows, setRows] = useState<SafePaste[]>([])
+  const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
   const [flaggedOnly, setFlaggedOnly] = useState(false)
   const [expiredOnly, setExpiredOnly] = useState(false)
-  const [rows, setRows] = useState<SafePaste[]>([])
-  const [loading, setLoading] = useState(true)
-  const [deleteTarget, setDeleteTarget] = useState<SafePaste | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<SafePaste | null>(null)
+  const [busy, setBusy] = useState(false)
 
   async function fetchPastes() {
     setLoading(true)
     try {
-      const data = await api.admin.listPastes({
+      const r = await api.admin.listPastes({
         q: q || undefined,
         flagged: flaggedOnly || undefined,
         expired: expiredOnly || undefined,
       })
-      setRows(data)
+      setRows(r)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Failed to load content.')
+      toast.error(err instanceof ApiError ? err.message : 'Failed to load pastes.')
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    const t = setTimeout(fetchPastes, 250)
-    return () => clearTimeout(t)
-  }, [q, flaggedOnly, expiredOnly])
+    fetchPastes()
+  }, [flaggedOnly, expiredOnly])
 
-  async function update(id: string, patch: Parameters<typeof api.admin.updatePaste>[1]) {
+  async function patchPaste(
+    p: SafePaste,
+    patch: { isFlagged?: boolean; visibility?: string; forceExpire?: boolean },
+  ) {
     try {
-      await api.admin.updatePaste(id, patch)
+      const res = await api.admin.updatePaste(p.id, patch)
+      const updated = res[0] as SafePaste | undefined
+      if (updated)
+        setRows((cur) => cur.map((x) => (x.id === p.id ? updated : x)))
       toast.success('Paste updated')
-      fetchPastes()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Update failed.')
     }
   }
 
   async function doDelete() {
-    if (!deleteTarget) return
-    setDeleting(true)
+    if (!confirmDelete) return
+    setBusy(true)
     try {
-      await api.admin.deletePaste(deleteTarget.id)
+      await api.admin.deletePaste(confirmDelete.id)
+      setRows((cur) => cur.filter((x) => x.id !== confirmDelete.id))
       toast.success('Paste deleted')
-      fetchPastes()
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
     } finally {
-      setDeleting(false)
-      setDeleteTarget(null)
+      setBusy(false)
+      setConfirmDelete(null)
     }
   }
 
   return (
     <div className="space-y-4">
-      <div className="glass flex flex-wrap items-center gap-3 rounded-xl p-3">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by title or slug…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="bg-muted/30 pl-9 focus-visible:ring-2 focus-visible:ring-brand"
-          />
+      {/* Filter bar */}
+      <Reveal variant={fadeUp}>
+        <div className="surface flex flex-wrap items-center gap-3 rounded-xl p-3">
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by title, slug, or owner…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && fetchPastes()}
+              className={`${INPUT_CLASS} pl-9`}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Switch
+              checked={flaggedOnly}
+              onCheckedChange={setFlaggedOnly}
+            />
+            Flagged only
+          </label>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Switch
+              checked={expiredOnly}
+              onCheckedChange={setExpiredOnly}
+            />
+            Expired only
+          </label>
+          <Button
+            onClick={fetchPastes}
+            className="bg-brand text-brand-foreground hover:bg-brand/90"
+            size="sm"
+          >
+            <Search className="h-3.5 w-3.5" /> Search
+          </Button>
         </div>
-        <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-1.5 text-xs">
-          <Switch checked={flaggedOnly} onCheckedChange={setFlaggedOnly} />
-          <Flag className="h-3.5 w-3.5 text-amber-500" /> Flagged only
-        </label>
-        <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-1.5 text-xs">
-          <Switch checked={expiredOnly} onCheckedChange={setExpiredOnly} />
-          <Flame className="h-3.5 w-3.5 text-rose-500" /> Expired only
-        </label>
-      </div>
+      </Reveal>
 
-      <div className={`glass overflow-hidden rounded-2xl ${SCROLLBAR_CLASS}`}>
-        <div className="max-h-[60vh] overflow-y-auto">
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur">
-              <TableRow className="border-border/50 hover:bg-transparent">
-                <TableHead>Title</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Lang</TableHead>
-                <TableHead>Visibility</TableHead>
-                <TableHead className="text-right">Views</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Owner</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="w-10"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                [0, 1, 2, 3].map((i) => (
-                  <TableRow key={i}>
-                    <TableCell colSpan={9}>
-                      <Skeleton className="h-8 w-full" />
+      {/* Table */}
+      <Reveal variant={fadeUp} delay={0.05}>
+        <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Title
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Type
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Lang
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Vis
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Views
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Status
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Owner
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Created
+                  </TableHead>
+                  <TableHead className="px-4" />
+                </TableRow>
+              </TableHeader>
+              <motion.tbody
+                variants={staggerContainer(0.04)}
+                initial="hidden"
+                animate="show"
+              >
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+                      Loading pastes…
                     </TableCell>
                   </TableRow>
-                ))
-              ) : rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
-                    No content found.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                <>
-                  {rows.map((p, i) => (
+                ) : rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                      No pastes found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rows.map((p) => (
                     <motion.tr
                       key={p.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.04, duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
-                      className="border-b border-border/30 transition-colors hover:bg-brand/5"
+                      variants={fadeUp}
+                      className="border-border border-b transition-colors hover:bg-surface-3"
                     >
-                      <TableCell>
-                        <div className="min-w-0 max-w-[220px]">
-                          <p className="truncate text-sm font-medium">
-                            {p.title ||
-                              (p.contentType === 'file' ? p.originalFileName : `/${p.slug}`)}
+                      <TableCell className="px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="max-w-[200px] truncate text-sm font-medium">
+                            {p.title || `/${p.slug}`}
                           </p>
-                          <p className="truncate font-mono text-xs text-muted-foreground">
-                            /{p.slug}
+                          <p className="font-mono max-w-[200px] truncate text-[11px] text-muted-foreground">
+                            {p.slug}
                           </p>
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px]">
+                      <TableCell className="px-4 py-3">
+                        <span className="font-mono text-[11px] text-muted-foreground">
                           {p.contentType}
-                        </Badge>
+                        </span>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{p.language}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="text-[10px]">
+                      <TableCell className="px-4 py-3">
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {p.language}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <span className="font-mono text-[11px] capitalize text-muted-foreground">
                           {p.visibility}
-                        </Badge>
+                        </span>
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm">{p.viewCount}</TableCell>
-                      <TableCell>
-                        <PasteStatusBadge paste={p} />
+                      <TableCell className="font-mono px-4 py-3 text-xs">
+                        {p.viewCount}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {p.ownerName || 'guest'}
+                      <TableCell className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {p.isExpired && (
+                            <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              expired
+                            </span>
+                          )}
+                          {p.isBurned && (
+                            <span className="inline-flex items-center rounded-md bg-brand-2/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-2">
+                              burned
+                            </span>
+                          )}
+                          {p.isFlagged && (
+                            <span className="inline-flex items-center rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+                              flagged
+                            </span>
+                          )}
+                          {!p.isExpired && !p.isBurned && !p.isFlagged && (
+                            <span className="inline-flex items-center rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+                              active
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
+                      <TableCell className="px-4 py-3">
+                        <span className="text-[11px] text-muted-foreground">
+                          {p.ownerName || 'guest'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
                         {formatRelativeTime(p.createdAt)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="px-4 py-3 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-brand">
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-52">
-                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuContent align="end" className="w-44">
                             <DropdownMenuItem
-                              onClick={() => update(p.id, { isFlagged: !p.isFlagged })}
+                              onClick={() =>
+                                patchPaste(p, { isFlagged: !p.isFlagged })
+                              }
                             >
-                              <Flag className="mr-2 h-3.5 w-3.5" />
+                              <Flag className="h-3.5 w-3.5" />
                               {p.isFlagged ? 'Unflag' : 'Flag'}
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => update(p.id, { forceExpire: true })}
-                              disabled={p.isExpired}
-                            >
-                              <Flame className="mr-2 h-3.5 w-3.5" /> Force expire
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel>Visibility</DropdownMenuLabel>
-                            {(['public', 'unlisted', 'private'] as const).map((v) => (
+                            {!p.isExpired && (
                               <DropdownMenuItem
-                                key={v}
-                                onClick={() => update(p.id, { visibility: v })}
-                                disabled={p.visibility === v}
+                                onClick={() =>
+                                  patchPaste(p, { forceExpire: true })
+                                }
                               >
-                                <span className="mr-2 capitalize">{v}</span>
-                                {p.visibility === v && <CheckCircle2 className="h-3 w-3" />}
+                                <Pause className="h-3.5 w-3.5" /> Force expire
                               </DropdownMenuItem>
-                            ))}
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => setDeleteTarget(p)}
+                              variant="destructive"
+                              onClick={() => setConfirmDelete(p)}
                             >
-                              <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+                              <Trash2 className="h-3.5 w-3.5" /> Delete
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
                     </motion.tr>
-                  ))}
-                </>
-              )}
-            </TableBody>
-          </Table>
+                  ))
+                )}
+              </motion.tbody>
+            </Table>
+          </div>
         </div>
-      </div>
+      </Reveal>
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <AlertDialogContent className="glass-strong">
+      <AlertDialog
+        open={!!confirmDelete}
+        onOpenChange={(o) => !o && setConfirmDelete(null)}
+      >
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete paste?</AlertDialogTitle>
             <AlertDialogDescription>
-              &quot;{deleteTarget?.title || deleteTarget?.slug}&quot; will be permanently removed.
+              This will permanently delete{' '}
+              <span className="font-mono text-foreground">
+                {confirmDelete?.slug}
+              </span>
+              . This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-white hover:bg-destructive/90"
               onClick={doDelete}
-              disabled={deleting}
+              disabled={busy}
             >
-              {deleting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />} Delete
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                'Delete'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -982,37 +1186,14 @@ function ContentTab() {
   )
 }
 
-function PasteStatusBadge({ paste }: { paste: SafePaste }) {
-  if (paste.isFlagged)
-    return <Badge className="bg-rose-500/15 text-rose-500 hover:bg-rose-500/20">flagged</Badge>
-  if (paste.isBurned)
-    return <Badge variant="secondary">burned</Badge>
-  if (paste.isExpired)
-    return <Badge variant="outline">expired</Badge>
-  return <Badge className="bg-brand/15 text-brand hover:bg-brand/20">active</Badge>
-}
+/* ---------------- Settings ---------------- */
 
-// ---------------- Settings ----------------
-
-type Settings = {
-  siteName?: string
-  tagline?: string
-  defaultExpiry?: string
-  maxFileSizeBytes?: number
-  allowedFileTypes?: string
-  storageDriver?: string
-  guestPostingEnabled?: boolean
-  sitemapEnabled?: boolean
-  metaTitleTemplate?: string
-  metaDescriptionTemplate?: string
-  robotsTxt?: string
-  [k: string]: unknown
-}
+type Settings = Record<string, unknown>
 
 function SettingsTab() {
   const [settings, setSettings] = useState<Settings | null>(null)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let active = true
@@ -1032,12 +1213,20 @@ function SettingsTab() {
     }
   }, [])
 
+  function setField<K extends string>(key: K, value: unknown) {
+    setSettings((cur) => (cur ? { ...cur, [key]: value } : cur))
+  }
+
   async function save() {
     if (!settings) return
     setSaving(true)
     try {
-      const rows = await api.admin.updateSettings(settings as Record<string, unknown>)
-      if (rows[0]) setSettings(rows[0] as Settings)
+      const patch: Record<string, unknown> = { ...settings }
+      // maxFileSizeBytes stored as bytes; UI shows MB.
+      if (typeof settings.maxFileSizeBytes === 'number') {
+        patch.maxFileSizeBytes = settings.maxFileSizeBytes
+      }
+      await api.admin.updateSettings(patch)
       toast.success('Settings saved')
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Save failed.')
@@ -1046,122 +1235,111 @@ function SettingsTab() {
     }
   }
 
-  function set<K extends keyof Settings>(key: K, value: Settings[K]) {
-    setSettings((s) => (s ? { ...s, [key]: value } : s))
-  }
-
   if (loading || !settings) {
     return (
-      <div className="glass-strong gradient-border rounded-2xl p-6">
-        <div className="space-y-3">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-10 w-full rounded-md" />
-          ))}
-        </div>
+      <div className="surface rounded-2xl p-6">
+        <Loader2 className="h-5 w-5 animate-spin text-brand" />
       </div>
     )
   }
 
-  const sizeMB = settings.maxFileSizeBytes
-    ? Math.round(settings.maxFileSizeBytes / (1024 * 1024))
-    : 0
+  const maxFileSizeMB =
+    typeof settings.maxFileSizeBytes === 'number'
+      ? Math.max(1, Math.round(settings.maxFileSizeBytes / (1024 * 1024)))
+      : 10
 
   return (
-    <div className="glass-strong gradient-border rounded-2xl p-6">
-      <div className="mb-5 flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold">
-            <span className="text-gradient">Site settings</span>
-          </h2>
-          <p className="text-xs text-muted-foreground">Configuration applies platform-wide.</p>
-        </div>
-        <Button
-          onClick={save}
-          disabled={saving}
-          className="btn-shine gap-1.5 bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-md shadow-brand/30"
-        >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
-        </Button>
-      </div>
-
-      <div className="space-y-6">
+    <Reveal variant={fadeUp}>
+      <div className="surface rounded-2xl p-6">
         {/* General */}
-        <section className="space-y-3">
-          <SectionTitle icon={<SettingsIcon className="h-3.5 w-3.5" />}>General</SectionTitle>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Site name">
-              <Input
-                value={settings.siteName || ''}
-                onChange={(e) => set('siteName', e.target.value)}
-                className="bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand"
-              />
-            </Field>
-            <Field label="Tagline">
-              <Input
-                value={settings.tagline || ''}
-                onChange={(e) => set('tagline', e.target.value)}
-                className="bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand"
-              />
-            </Field>
-          </div>
-        </section>
-
-        <Separator />
-
-        {/* Limits */}
-        <section className="space-y-3">
-          <SectionTitle icon={<HardDrive className="h-3.5 w-3.5" />}>Limits</SectionTitle>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Default expiry">
-              <Select
-                value={settings.defaultExpiry || 'never'}
-                onValueChange={(v) => set('defaultExpiry', v)}
-              >
-                <SelectTrigger className="w-full bg-muted/30">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {EXPIRY_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Max file size (MB)">
-              <Input
-                type="number"
-                min={1}
-                value={sizeMB}
-                onChange={(e) =>
-                  set('maxFileSizeBytes', Math.max(0, Number(e.target.value)) * 1024 * 1024)
-                }
-                className="bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand"
-              />
-            </Field>
-          </div>
-          <Field label="Allowed file types (comma-separated extensions)">
+        <SectionHeader>General</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Site name">
             <Input
-              value={settings.allowedFileTypes || ''}
-              onChange={(e) => set('allowedFileTypes', e.target.value)}
-              placeholder=".png, .jpg, .pdf"
-              className="bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand"
+              value={String(settings.siteName ?? '')}
+              onChange={(e) => setField('siteName', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="PasteShare"
             />
           </Field>
-        </section>
+          <Field label="Tagline">
+            <Input
+              value={String(settings.tagline ?? '')}
+              onChange={(e) => setField('tagline', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="Share code & files, beautifully."
+            />
+          </Field>
+        </div>
 
-        <Separator />
+        <Divider />
+
+        {/* Limits */}
+        <SectionHeader>Limits</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Default expiry">
+            <Select
+              value={String(settings.defaultExpiry ?? 'never')}
+              onValueChange={(v) => setField('defaultExpiry', v)}
+            >
+              <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {EXPIRY_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Max file size (MB)">
+            <Input
+              type="number"
+              min={1}
+              value={maxFileSizeMB}
+              onChange={(e) =>
+                setField(
+                  'maxFileSizeBytes',
+                  Math.max(1, Number(e.target.value || 0)) * 1024 * 1024,
+                )
+              }
+              className={INPUT_CLASS}
+            />
+          </Field>
+          <Field label="Allowed file types">
+            <Input
+              value={String(settings.allowedFileTypes ?? '')}
+              onChange={(e) => setField('allowedFileTypes', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="image/*,text/*,application/pdf"
+            />
+          </Field>
+          <Field label="Guest posting">
+            <div className="flex items-center gap-2 pt-1.5">
+              <Switch
+                checked={Boolean(settings.guestPostingEnabled)}
+                onCheckedChange={(c) => setField('guestPostingEnabled', c)}
+              />
+              <span className="text-xs text-muted-foreground">
+                Allow anonymous paste creation
+              </span>
+            </div>
+          </Field>
+        </div>
+
+        <Divider />
 
         {/* Storage */}
-        <section className="space-y-3">
-          <SectionTitle icon={<HardDrive className="h-3.5 w-3.5" />}>Storage</SectionTitle>
+        <SectionHeader>Storage</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Storage driver">
             <Select
-              value={settings.storageDriver || 'local'}
-              onValueChange={(v) => set('storageDriver', v)}
+              value={String(settings.storageDriver ?? 'local')}
+              onValueChange={(v) => setField('storageDriver', v)}
             >
-              <SelectTrigger className="w-full bg-muted/30">
+              <SelectTrigger className={`${INPUT_CLASS} w-full`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1170,110 +1348,110 @@ function SettingsTab() {
               </SelectContent>
             </Select>
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <ToggleRow
-              label="Guest posting enabled"
-              description="Allow non-logged-in users to create pastes."
-              checked={!!settings.guestPostingEnabled}
-              onCheckedChange={(v) => set('guestPostingEnabled', v)}
-            />
-            <ToggleRow
-              label="Sitemap enabled"
-              description="Generate /sitemap.xml for public pastes."
-              checked={!!settings.sitemapEnabled}
-              onCheckedChange={(v) => set('sitemapEnabled', v)}
-            />
-          </div>
-        </section>
+          <Field label="Sitemap">
+            <div className="flex items-center gap-2 pt-1.5">
+              <Switch
+                checked={Boolean(settings.sitemapEnabled)}
+                onCheckedChange={(c) => setField('sitemapEnabled', c)}
+              />
+              <span className="text-xs text-muted-foreground">
+                Generate sitemap.xml
+              </span>
+            </div>
+          </Field>
+        </div>
 
-        <Separator />
+        <Divider />
 
         {/* SEO */}
-        <section className="space-y-3">
-          <SectionTitle icon={<Eye className="h-3.5 w-3.5" />}>SEO</SectionTitle>
+        <SectionHeader>SEO</SectionHeader>
+        <div className="space-y-4">
           <Field label="Meta title template">
             <Input
-              value={settings.metaTitleTemplate || ''}
-              onChange={(e) => set('metaTitleTemplate', e.target.value)}
-              placeholder="%s · PasteShare"
-              className="bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand"
+              value={String(settings.metaTitleTemplate ?? '')}
+              onChange={(e) => setField('metaTitleTemplate', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="%s — PasteShare"
             />
           </Field>
           <Field label="Meta description template">
-            <Textarea
-              rows={2}
-              value={settings.metaDescriptionTemplate || ''}
-              onChange={(e) => set('metaDescriptionTemplate', e.target.value)}
-              className="bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand"
+            <Input
+              value={String(settings.metaDescriptionTemplate ?? '')}
+              onChange={(e) => setField('metaDescriptionTemplate', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="A code & file sharing platform."
             />
           </Field>
           <Field label="robots.txt">
             <Textarea
-              rows={5}
-              value={settings.robotsTxt || ''}
-              onChange={(e) => set('robotsTxt', e.target.value)}
-              className="bg-muted/30 font-mono text-xs focus-visible:ring-2 focus-visible:ring-brand"
+              value={String(settings.robotsTxt ?? '')}
+              onChange={(e) => setField('robotsTxt', e.target.value)}
+              className={`${INPUT_CLASS} min-h-[120px] font-mono text-xs`}
+              placeholder="User-agent: *"
             />
           </Field>
-        </section>
+        </div>
+
+        <div className="mt-6 flex justify-end">
+          <Button
+            onClick={save}
+            disabled={saving}
+            className="btn-shine gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+          >
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            Save settings
+          </Button>
+        </div>
       </div>
-    </div>
+    </Reveal>
   )
 }
 
-function SectionTitle({ children, icon }: { children: ReactNode; icon: ReactNode }) {
+function SectionHeader({ children }: { children: ReactNode }) {
   return (
-    <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-      <span className="text-brand">{icon}</span>
+    <h3 className="font-mono mb-4 text-[11px] uppercase tracking-wider text-muted-foreground">
       {children}
     </h3>
   )
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Divider() {
+  return <div className="my-6 h-px bg-border" />
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
+      <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </Label>
       {children}
     </div>
   )
 }
 
-function ToggleRow({
-  label,
-  description,
-  checked,
-  onCheckedChange,
-}: {
-  label: string
-  description: string
-  checked: boolean
-  onCheckedChange: (v: boolean) => void
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 rounded-md border border-border/50 bg-muted/20 p-3">
-      <div>
-        <p className="text-sm font-medium">{label}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
-    </div>
-  )
-}
-
-// ---------------- Audit ----------------
+/* ---------------- Audit ---------------- */
 
 function AuditTab() {
   const [rows, setRows] = useState<SafeAuditLog[]>([])
   const [loading, setLoading] = useState(true)
-  const [expanded, setExpanded] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
     api.admin
       .listAudit(100)
-      .then((data) => {
-        if (active) setRows(data)
+      .then((r) => {
+        if (active) setRows(r)
       })
       .catch((err) => {
         toast.error(err instanceof ApiError ? err.message : 'Failed to load audit log.')
@@ -1286,119 +1464,156 @@ function AuditTab() {
     }
   }, [])
 
-  if (!loading && rows.length === 0) {
-    return (
-      <Reveal variant={fadeUp}>
-        <div className="glass mx-auto max-w-md rounded-2xl p-10 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand/10">
-            <ShieldAlert className="h-6 w-6 text-brand" />
-          </div>
-          <p className="text-sm text-muted-foreground">No audit entries yet.</p>
-        </div>
-      </Reveal>
-    )
-  }
-
   return (
-    <div className={`glass overflow-hidden rounded-2xl ${SCROLLBAR_CLASS}`}>
-      <div className="max-h-[60vh] overflow-y-auto">
-        <Table>
-          <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur">
-            <TableRow className="border-border/50 hover:bg-transparent">
-              <TableHead>Time</TableHead>
-              <TableHead>Admin</TableHead>
-              <TableHead>Action</TableHead>
-              <TableHead>Target</TableHead>
-              <TableHead>Target ID</TableHead>
-              <TableHead>Metadata</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              [0, 1, 2, 3].map((i) => (
-                <TableRow key={i}>
-                  <TableCell colSpan={6}>
-                    <Skeleton className="h-8 w-full" />
+    <Reveal variant={fadeUp}>
+      <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+        <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+          <Table>
+            <TableHeader className="sticky top-0 z-10 bg-surface-2">
+              <TableRow className="border-border hover:bg-transparent">
+                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Time
+                </TableHead>
+                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Admin
+                </TableHead>
+                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Action
+                </TableHead>
+                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Target
+                </TableHead>
+                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Target ID
+                </TableHead>
+                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Metadata
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <motion.tbody
+              variants={staggerContainer(0.03)}
+              initial="hidden"
+              animate="show"
+            >
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                    <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+                    Loading audit log…
                   </TableCell>
                 </TableRow>
-              ))
-            ) : (
-              <>
-                {rows.map((a, i) => {
-                  const isOpen = expanded === a.id
-                  let metaStr: string
-                  try {
-                    metaStr = JSON.stringify(a.metadata, null, 2)
-                  } catch {
-                    metaStr = String(a.metadata)
-                  }
-                  return (
-                    <motion.tr
-                      key={a.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.03, duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
-                      className="border-b border-border/30 transition-colors hover:bg-brand/5"
-                    >
-                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                        {formatDate(a.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-xs">{a.adminEmail || '—'}</TableCell>
-                      <TableCell>
-                        <ActionBadge action={a.action} />
-                      </TableCell>
-                      <TableCell className="text-xs">{a.targetType}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {a.targetId ? a.targetId.slice(0, 8) : '—'}
-                      </TableCell>
-                      <TableCell className="max-w-[280px]">
-                        {metaStr && metaStr !== '{}' && metaStr !== 'null' ? (
-                          <div>
-                            <button
-                              onClick={() => setExpanded(isOpen ? null : a.id)}
-                              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-brand"
-                            >
-                              {isOpen ? (
-                                <ChevronDown className="h-3 w-3" />
-                              ) : (
-                                <ChevronRight className="h-3 w-3" />
-                              )}
-                              <span className="truncate font-mono">
-                                {isOpen ? '' : metaStr.slice(0, 60)}
-                              </span>
-                            </button>
-                            {isOpen && (
-                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 font-mono text-[10px]">
-                                {metaStr}
-                              </pre>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    </motion.tr>
-                  )
-                })}
-              </>
-            )}
-          </TableBody>
-        </Table>
+              ) : rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                    No audit entries yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((a) => (
+                  <motion.tr
+                    key={a.id}
+                    variants={fadeUp}
+                    className="border-border border-b transition-colors hover:bg-surface-3"
+                  >
+                    <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                      {formatDate(a.createdAt)}
+                    </TableCell>
+                    <TableCell className="px-4 py-3">
+                      <span className="text-xs">{a.adminEmail || 'system'}</span>
+                    </TableCell>
+                    <TableCell className="px-4 py-3">
+                      <ActionBadge action={a.action} />
+                    </TableCell>
+                    <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                      {a.targetType}
+                    </TableCell>
+                    <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                      <span className="block max-w-[120px] truncate">
+                        {a.targetId}
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-4 py-3">
+                      <MetadataCell data={a.metadata} />
+                    </TableCell>
+                  </motion.tr>
+                ))
+              )}
+            </motion.tbody>
+          </Table>
+        </div>
       </div>
-    </div>
+    </Reveal>
   )
 }
 
 function ActionBadge({ action }: { action: string }) {
-  let cls = 'border-border/50'
-  if (action.startsWith('delete')) cls = 'border-destructive/40 text-destructive'
-  else if (action.startsWith('ban') || action.includes('suspend'))
-    cls = 'border-amber-500/40 text-amber-500'
-  else if (action.startsWith('update') || action.includes('verify'))
-    cls = 'border-brand/40 text-brand'
+  const lower = action.toLowerCase()
+  if (lower.includes('delete'))
+    return (
+      <span className="inline-flex items-center rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+        {action}
+      </span>
+    )
+  if (lower.includes('ban') || lower.includes('suspend'))
+    return (
+      <span className="inline-flex items-center rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
+        {action}
+      </span>
+    )
+  if (lower.includes('update') || lower.includes('edit') || lower.includes('set'))
+    return (
+      <span className="inline-flex items-center rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+        {action}
+      </span>
+    )
   return (
-    <Badge variant="outline" className={'font-mono text-[10px] ' + cls}>
+    <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
       {action}
-    </Badge>
+    </span>
+  )
+}
+
+function MetadataCell({ data }: { data: unknown }) {
+  const [open, setOpen] = useState(false)
+  const text = useMemo(() => {
+    if (data === null || data === undefined) return ''
+    if (typeof data === 'string') return data
+    try {
+      return JSON.stringify(data)
+    } catch {
+      return String(data)
+    }
+  }, [data])
+
+  if (!text) return <span className="text-[11px] text-muted-foreground">—</span>
+
+  return (
+    <div className="flex items-center gap-1">
+      <span className="max-w-[160px] truncate font-mono text-[11px] text-muted-foreground">
+        {text}
+      </span>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6"
+        onClick={() => setOpen(true)}
+      >
+        <Eye className="h-3 w-3" />
+      </Button>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Metadata</AlertDialogTitle>
+          </AlertDialogHeader>
+          <pre className="surface-3 max-h-[40vh] overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap break-all">
+            {text}
+          </pre>
+          <AlertDialogFooter>
+            <AlertDialogAction>Close</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   )
 }

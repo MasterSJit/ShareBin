@@ -392,3 +392,197 @@ Stage Summary:
 - Color discipline maintained: emerald (brand) + violet/fuchsia (brand-2) only — zero indigo/blue.
 - Responsive (mobile + desktop) with sticky footer verified.
 - The app is ready. Preview via the Preview Panel (right side) or click "Open in New Tab".
+
+---
+Task ID: 10 (navigation history + new design system v2)
+Agent: orchestrator (main)
+Task: Add browser navigation history + completely new UI design language
+
+Work Log:
+- Rewrote `src/lib/store.ts` with full browser history integration:
+  - Hash-based routing: `#/` home, `#/browse`, `#/p/<slug>` view, `#/dashboard`, `#/admin`, `#/login`, `#/register`.
+  - `viewToHash(v)` / `hashToView(hash)` converters.
+  - `setView(v)` pushes a new history entry (`history.pushState`) so Back/Forward buttons work.
+  - `setViewFromHistory(v)` updates state WITHOUT pushing (used by popstate).
+  - Global `popstate` + `hashchange` listeners installed once (HMR-safe via `window.__psRouterInstalled`).
+  - `back()` action calls `history.back()`. `canGoBack` tracks `history.length > 1`.
+  - Initial view parsed from `window.location.hash` on load (deep-linkable — visiting `/#/browse` opens Browse directly).
+- Rewrote `src/app/globals.css` with NEW design language ("terminal-grade"):
+  - NEW palette: vivid lime-green (`--brand` oklch 0.8 0.2 125) + coral (`--brand-2` oklch 0.68 0.2 25) on deep charcoal (oklch 0.115 0.003 240). NO indigo/blue/emerald/violet from before.
+  - NEW surface system: `.surface` / `.surface-2` / `.surface-3` — SOLID elevated panels with a subtle top-edge highlight gradient (replaces glassmorphism blur). Cleaner, more "product-grade".
+  - Kept/refined utilities: `.glow-brand`, `.glow-brand-hover`, `.text-gradient` (lime→amber), `.brand-dot`, `.bg-grid`, `.bg-dots`, `.shimmer`, `.btn-shine`, `.lift`, `.focus-brand`, `.aurora-blob`, `.terminal-strip`, `.animate-*` (pulse-soft, float-soft, spin-slow, glow-pulse, blink, ticker).
+  - Selection color = brand lime. Scrollbar thumb = brand on hover.
+  - Monaco transparent bg kept.
+- Rewrote `src/components/animated-background.tsx`: restrained — single lime aurora (top-left, 24s drift) + single coral aurora (bottom-right, 30s drift) + faded grid. No rainbow.
+- Rewrote `src/components/header.tsx`: added Back button (ChevronLeft, uses `back()` from store, disabled when `!canGoBack`), brand-dot logo, nav with animated `layoutId` underline, theme toggle, user menu. `setView` now pushes history so every nav click is a history entry.
+- Rewrote `src/components/footer.tsx`: minimal, brand-dot.
+- `src/app/page.tsx`: unchanged structure (AnimatePresence + PageTransition) — view key derived from view name/slug.
+
+Stage Summary:
+- Navigation history: every click on New/Browse/Dashboard/Admin/Login/Register/Sign-up/open-paste now pushes a browser history entry. Back/Forward buttons work. URLs are deep-linkable (e.g. `/#/p/g2Nzrp` opens that paste). Reload preserves the view.
+- New design language: lime accent on deep charcoal, solid elevated surfaces (not glass blur), refined typography, purposeful restrained motion. Downstream view agents MUST use `.surface`/`.surface-2` (NOT `.glass`), `text-brand`/`bg-brand` for the lime accent, `text-brand-2` for coral. NEVER indigo/blue/violet/emerald.
+
+---
+Task ID: 11-b
+Agent: browse-paste-view-rebuild
+Task: Rebuild BrowseView + PasteView with terminal-grade design language (Task 10 spec)
+
+Work Log:
+- Rebuilt `src/components/views/browse-view.tsx` from scratch:
+  - Left-aligned header with `<Reveal>`: `font-mono text-xs text-brand` eyebrow `> ls /public`, H1 "Browse" (`text-3xl md:text-4xl font-semibold tracking-tight`), `text-muted-foreground` subtitle.
+  - Filter bar: `.surface rounded-xl sticky top-16 z-30` card, `flex flex-col gap-3 md:flex-row md:items-center p-3`. Search input (`bg-surface-3 border-border`, Search prefix, focus → `ring-1 ring-brand border-brand`, 300ms debounce). ToggleGroup scope (Recent/Trending/By Language) — border-on-active style with icons + labels hidden on mobile. Conditional `<Select>` for languages when scope=language (`{language} ({count})`). Icon-only ghost Refresh button.
+  - Results: `<StaggerGroup stagger={0.05}>` over `grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4`, each `<Reveal variant={fadeUp}><PasteCard/></Reveal>`. Loading = 6 `.shimmer bg-surface h-44 rounded-xl` skeletons. Empty = centered `.surface rounded-xl p-12` with SearchX + "No pastes found" + `bg-brand text-brand-foreground` "Create one" → `goHome()`. Load more = centered `.btn-shine bg-brand text-brand-foreground rounded-md`, pageSize=12.
+  - Languages sidebar (xl only): `.surface rounded-xl p-4` titled with `font-mono text-[11px] uppercase tracking-wider text-muted-foreground` "top languages" + `.brand-dot`. Top 12 as rows (`flex items-center justify-between rounded-md px-2 py-1.5 text-sm cursor-pointer hover:bg-surface-3`), active=`bg-brand/10 text-brand`, mono name + `bg-muted` count badge. Wrapped in `<StaggerGroup stagger={0.03}>`.
+  - Layout: `xl:grid xl:grid-cols-[1fr_240px] gap-6` (results + aside).
+- Rebuilt `src/components/views/paste-view.tsx` from scratch:
+  - Loading: centered `.brand-dot animate-pulse-soft` + `font-mono text-sm text-muted-foreground` "loading paste…" + `.shimmer bg-surface rounded-xl h-96` skeleton.
+  - 404: `.surface rounded-2xl p-12` centered, FileQuestion icon, "Paste not found", "It may have been deleted.", `bg-brand` back button → `goBrowse()`.
+  - 410 (gone): same card, Flame icon `text-brand-2`, "This paste is gone.", "It expired or was burned after reading."
+  - Password gate: centered max-w-md `.surface rounded-2xl p-8 glow-brand` card. Lock in `h-14 w-14 rounded-full bg-brand/15 text-brand` with `animate-glow-pulse`. Title + `font-mono text-xs` "password protected". Password input (`bg-surface-3 border-border`, Lock prefix). Wrong password → `animate: { x: [0,-8,8,-6,6,0] }` shake + destructive "Incorrect password. N attempts remaining." Unlock button `.btn-shine bg-brand text-brand-foreground rounded-md w-full`. On success: `markUnlocked(id)` + re-fetch + `toast.success('Unlocked')`.
+  - Burn-after-read banner: `.surface rounded-xl p-3 border border-brand-2/30 flex items-center gap-3`, Flame `text-brand-2 animate-pulse-soft`, "Burned — this paste was permanently deleted after reading." Placed above main layout.
+  - Main layout `lg:grid lg:grid-cols-3 gap-6`. Main (`lg:col-span-2`): header block (eyebrow `> cat /p/{slug}`, H1 title with `/slug` fallback, description, mono tag chips `bg-muted`), action bar (`.surface rounded-lg p-2 flex items-center gap-1`: Copy/Raw `<a target=_blank>`/Share ghost buttons `hover:bg-surface-3`, owner-only Edit + Delete with AlertDialog confirm → `api.deletePaste` → `goBrowse()`), content (text: `.surface rounded-lg overflow-hidden` + `.terminal-strip h-9` top bar with 3 dots + mono language + `read-only` badge, Monaco `min-h-[500px]`; file: `.surface rounded-2xl p-8` centered card with `h-16 w-16 rounded-2xl bg-brand/15 text-brand` icon, filename + mono size/type, `<a href={api.fileDownloadUrl(slug)} download>` styled `btn-shine bg-brand`).
+  - Sidebar (`lg:col-span-1`): `.surface-2 rounded-xl p-5 space-y-4`. Owner row (`h-9 w-9 rounded-full bg-gradient-to-br from-brand to-brand-2` initials + name + mono "owner"). Divider. Stats `grid-cols-2 gap-3` (Visibility+icon, Language mono, Views `<AnimatedNumber>`, Created relative w/ tooltip, Expires relative or "Never", Type). Badges row (burn `text-brand-2`, password, flagged `text-destructive`) — `bg-muted` pills.
+  - Related (bottom): `font-mono text-xs text-muted-foreground` "More in {language}" eyebrow + h3, `<StaggerGroup>` 3-col grid of `<PasteCard>`.
+- Both files: `'use client'`. Container `max-w-6xl mx-auto px-4 sm:px-6 py-8 md:py-10`. Used `.surface`/`.surface-2`/`.surface-3` only (no `.glass`). Brand=lime, brand-2=coral. No indigo/blue/violet/emerald. TS strict, no `any`, no unused vars (verified by `bun run lint` + `tsc --noEmit`). Kept signatures `BrowseView()` and `PasteView({ idOrSlug }: { idOrSlug: string })`.
+
+Stage Summary:
+- Browse + Paste views rebuilt in the new terminal-grade design language: solid elevated surfaces, lime-on-charcoal palette, mono typography for metadata/labels, purposeful motion. Both views compile and lint cleanly. `PasteCard` (from parallel agent) consumed as-is. No files outside the two views (and worklog) modified.
+
+---
+Task ID: 11-a
+Agent: home-pastecard-rebuild
+Task: Rebuild PasteCard + HomeView with terminal-grade design language (Task 10 spec)
+
+Work Log:
+- Rebuilt `src/components/paste-card.tsx` from scratch:
+  - Root: `<motion.button>` (`whileHover={{ y: -2 }}`, 0.3s cubic-bezier) wrapping a `.surface relative overflow-hidden rounded-xl p-4` card. `focus-brand` for keyboard ring. `type="button"` + `aria-label`.
+  - Left-border accent: two stacked absolutely-positioned strips at `left-0 top-0 w-0.5`. Base = `bg-border h-full` (always visible). Brand = `bg-brand origin-top transition-[height] duration-300 ease-out group-hover:h-full` (animated 0→100% from top on hover via CSS group-hover).
+  - Header: 8x8 icon tile (`bg-surface-3 text-muted-foreground` for text, `bg-brand/15 text-brand` for files) with FileText/FileType icon. Title `font-medium text-sm truncate flex-1`. Right: language badge OR file-size badge (`font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded`).
+  - Description: `text-xs text-muted-foreground line-clamp-1` (conditional).
+  - Text preview (text pastes only): `<pre>` `font-mono text-[11px] text-muted-foreground/80 bg-muted/30 rounded-md p-2 max-h-20 overflow-hidden`, first 200 chars + "…".
+  - Footer: `flex items-center gap-3 font-mono text-[11px] text-muted-foreground`. Owner (gradient dot if owner, muted dot if guest, `max-w-[80px] truncate` name). Visibility icon-only (Globe/Link2/Lock) wrapped in shadcn `<Tooltip>` (`asChild` span to avoid nested buttons). Views (Eye + count). Relative time. Right-aligned badges: burn (`Flame text-brand-2`), password (`Lock`), flagged (`Flag text-destructive`) — each in its own Tooltip, icon-only.
+  - Whole card clickable → `goView(paste.slug)`. Card border shifts to `border-brand/40` on hover (`group-hover:border-brand/40 transition-colors`). Parent wraps in `<Reveal>` (no entrance animation inside the card itself).
+- Rebuilt `src/components/views/home-view.tsx` from scratch:
+  - Hero (left-aligned, in `<Reveal>`): `font-mono text-xs text-brand` eyebrow `> new_paste.sh`. H1 `text-4xl md:text-5xl font-semibold tracking-tight` "Share code, beautifully." with `text-gradient` on "beautifully.". `text-muted-foreground text-base` subtitle. Row of 3 feature chips with `brand-dot` + label ("45+ languages", "burn-after-read", "password-protected").
+  - Create panel: `.surface overflow-hidden rounded-2xl`. `.terminal-strip h-10 flex items-center gap-2 px-4` top bar with 3 dots (rose/amber/lime, `h-3 w-3 rounded-full`) + `font-mono text-xs text-muted-foreground` "pasteshare — new". Body `p-5 md:p-6`.
+  - Tabs (Text/File) — minimal underline style: `TabsList` overridden to `bg-transparent p-0 h-auto gap-5`; `TabsTrigger` overridden with `rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2 pt-1 text-muted-foreground hover:text-foreground data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none`.
+  - Text tab — `grid gap-5 lg:grid-cols-3`. Main `lg:col-span-2`: title input (borderless bottom-line, `text-xl font-medium`, focus → `border-brand`), description (same borderless style), tags (Tag icon prefix + borderless input), Monaco editor in `mt-4 rounded-lg border border-border bg-surface-2` container with sub-bar showing `font-mono text-[11px]` language + `font-mono text-[10px] uppercase tracking-wider text-brand` "read-write" badge, `min-h-[420px]`.
+  - File tab — same grid. Left: title/description/tags inputs + dropzone `min-h-[280px] rounded-lg border border-dashed border-border bg-surface-2/50 hover:border-brand hover:bg-brand/5` (drag-over → `border-brand bg-brand/5`). Empty: `h-12 w-12 rounded-full bg-surface-3` Upload icon + "Drop a file here" + "or click to browse" + mono "Max 25 MB". Selected: file row card with `bg-brand/15 text-brand` icon + name + mono size/type + X remove button.
+  - Right sidebar (`lg:col-span-1`): `.surface-2 rounded-xl p-4 space-y-4`. Language `<Select>` (trigger `bg-surface-3 border-border`, label `font-mono text-[11px] uppercase tracking-wider text-muted-foreground`). Visibility = 3 stacked radio card buttons (`flex items-center gap-2 rounded-md border px-3 py-2 text-sm`; selected = `border-brand bg-brand/5 text-foreground` with `text-brand` icon; unselected = `border-border text-muted-foreground hover:text-foreground`; private disabled for guests → `opacity-50` + mono "login required" text). Password row (Switch `data-[state=checked]:bg-brand` + Lock icon + "Password" label; reveals password input when on; disables burn). Burn row (Switch `data-[state=checked]:bg-brand-2` + Flame + "Burn after read"; "Deleted after first view" helper; disables password). Expiry `<Select>` (label "Expires" mono uppercase; reveals datetime-local on "Custom…"). Submit button full-width `.btn-shine bg-brand text-brand-foreground hover:bg-brand/90 rounded-md font-medium` with Plus/Upload icon, `Loader2` spinner while submitting, disabled when content empty. Guest footer: "Guest paste — log in for private pastes" with `text-brand hover:underline` link → `goLogin()`.
+  - Recent public pastes section: header `flex items-center justify-between mb-4` with `<h2 className="text-lg font-semibold">Recent</h2>` + mono `/public` label + ghost "Browse all →" button → `goBrowse()`. Loading = 3 `.shimmer bg-surface h-40 rounded-xl` skeletons. Empty = `rounded-xl border border-border bg-surface py-12 text-center` "No public pastes yet. Be the first." Grid: `<StaggerGroup stagger={0.07}>` over `grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4`, each card in `<Reveal variant={fadeUp}><PasteCard/></Reveal>`.
+  - On submit: `api.createPaste(body)` → `toast.success('Paste created')` → `goView(paste.slug)`; errors via `ApiError`. File upload uses `api.uploadFile(formData)` with same flow. Mutual exclusion: enabling password disables burn (and vice-versa) at the state-setter level + Switch `disabled` props.
+  - Both files: `'use client'`. Container `max-w-6xl mx-auto px-4 sm:px-6 py-8 md:py-12`. Used `.surface`/`.surface-2`/`.surface-3` only (no `.glass`/`.glass-strong`). Brand=lime primary accent, brand-2=coral for burn switch only. No indigo/blue/violet/emerald. TS strict, no `any`, no unused vars (verified by `bun run lint`: 0 errors, 0 warnings in touched files). Kept prop signatures `PasteCard({ paste }: { paste: SafePaste })` and `HomeView()`.
+
+Stage Summary:
+- PasteCard + HomeView rebuilt in the new terminal-grade design language: solid elevated surfaces (no glass), lime-on-charcoal palette, mono typography for labels/metadata/tokens, editorial left-aligned hero with terminal-prompt eyebrow, terminal-strip window chrome on the create panel, underline tabs, borderless bottom-line inputs, animated left-border accent on cards, restrained motion. PasteCard and HomeView compile cleanly and lint passes. No files outside `src/components/paste-card.tsx`, `src/components/views/home-view.tsx`, and the worklog were modified.
+
+---
+Task ID: 11-c
+Agent: view-builder (auth + dashboard + admin)
+Task: Rebuild Auth, Dashboard, and Admin views in the new "terminal-grade" design language (lime + coral on charcoal, solid surfaces, mono labels).
+
+Work Log:
+- `src/components/views/auth-view.tsx` — FULL REWRITE:
+  - `AuthView({ mode })` wrapper: `flex-1 flex items-center justify-center px-4 py-8` → `Reveal variant={scaleIn}` → max-w-md `.surface .glow-brand` card.
+  - `.terminal-strip` top bar (h-10, 3 dots + `font-mono text-xs text-muted-foreground` "pasteshare — auth").
+  - Brand mark: `h-10 w-10 rounded-lg bg-brand text-brand-foreground` with FileCode icon + `.brand-dot` top-right.
+  - H1 "Paste**Share**" with "Share" in `text-brand`; subtitle switches by mode ("Welcome back" / "Create your account").
+  - Underline tabs (Log in / Sign up): active `text-foreground border-b-2 border-brand`, inactive `text-muted-foreground border-transparent`.
+  - Form fields: `font-mono text-[11px] uppercase tracking-wider text-muted-foreground` labels, inputs `bg-surface-3 border-border rounded-md focus-visible:ring-brand`.
+  - Shake-animated inline errors (`motion.p` x-shake keyframes) + destructive form-level banner.
+  - Submit: `btn-shine bg-brand text-brand-foreground rounded-md w-full`, Loader2 spinner while submitting.
+  - Forgot-password flow inline: request → (dev token returned) → `font-mono bg-background/40 rounded p-2 text-xs` code box with Copy button → reset form → success → back to login.
+  - Demo hint: `.surface-3 rounded-md p-3 text-xs` with `.brand-dot` + `admin@pasteshare.local / admin123` + lime-ghost "Fill" button.
+  - On success: `setUser(u)`, `goHome()`, sonner toast.
+- `src/components/views/dashboard-view.tsx` — FULL REWRITE:
+  - `DashboardView()` gate: if no `user` → `.surface rounded-2xl p-12` centered "Log in required" with `.bg-brand` button calling `goLogin()`.
+  - Header: eyebrow `font-mono text-xs text-brand` `> ~/dashboard`, H1 "Dashboard" (`text-3xl font-semibold`), "Welcome, {name}".
+  - Layout: `lg:grid lg:grid-cols-3 lg:gap-6`.
+  - Profile (`lg:col-span-1`, wrapped in `<Reveal>`):
+    - Avatar `h-14 w-14 rounded-full bg-gradient-to-br from-brand to-brand-2 text-brand-foreground font-semibold` (initials), name + email, role badge (admin=`bg-brand/15 text-brand` + Shield icon), `StatusBadge`.
+    - API key: `font-mono text-xs` masked in `.surface-3 rounded-md p-2`, Show/Hide (Eye/EyeOff) + Regenerate (RefreshCw, calls `api.updateProfile({ regenerateApiKey: true })`).
+    - Collapsibles (shadcn `Collapsible`): Edit profile (displayName + Save), Change password (current+new+Save), Delete account (danger — current pw + `AlertDialog` confirm → `api.deleteAccount` → `setUser(null)`, `goHome()`). Triggers `font-mono text-[11px] uppercase tracking-wider` + chevron.
+  - My Pastes (`lg:col-span-2`):
+    - Fetches `api.listPastes({ scope: 'own', pageSize: 50 })`.
+    - Header: H2 + `<AnimatedNumber>` in `text-brand font-mono` + "New paste" `bg-brand text-brand-foreground btn-shine` button (`goHome()`).
+    - Filter chips (All/Active/Expired/Burned/Flagged): `font-mono text-xs px-2.5 py-1 rounded-md border`, active `border-brand bg-brand/10 text-brand`.
+    - `<StaggerGroup stagger={0.05}>` of `<Reveal variant={fadeUp}>` wrapping `<PasteCard>`; below each card a right-aligned action row: Edit (ghost, opens Dialog with title/desc/tags/visibility/expiry → `api.updatePaste`) + Delete (ghost destructive, `AlertDialog` → `api.deletePaste`).
+    - Loading: 4 `.shimmer bg-surface h-40 rounded-xl`.
+    - Empty: `.surface-2 rounded-xl p-12` centered "No pastes yet" + "Create your first paste" button.
+- `src/components/views/admin-view.tsx` — FULL REWRITE:
+  - `AdminView()` gate: if `!user || user.role !== 'admin'` → `.surface rounded-2xl p-12` "Admin only" + Back button.
+  - Header: eyebrow `font-mono text-xs text-brand` `> sudo admin`, H1 "Admin" + `.brand-dot`, subtitle.
+  - shadcn `Tabs` vertical on lg: Overview / Users / Content / Settings / Audit. Triggers: `font-mono text-[11px] uppercase tracking-wider`, active `data-[state=active]:border-l-brand data-[state=active]:bg-brand/10 data-[state=active]:text-brand`, inactive `text-muted-foreground hover:text-foreground`.
+  - Overview tab:
+    - 4 KPI cards `grid-cols-2 lg:grid-cols-4 gap-4`, each `.surface rounded-xl p-5 lift`. Top `font-mono text-[10px] uppercase tracking-wider text-muted-foreground` label, `<AnimatedNumber>` big value (`text-2xl font-semibold`), small icon below. `text-brand` accent on "Total users" and "Storage used" cards.
+    - 2 small stat cards (Flagged = amber, Burned = coral) side by side.
+    - Traffic chart: `.surface rounded-xl p-5`, recharts `<AreaChart>` of `traffic`, lime gradient fill (`<defs>` linearGradient brand→transparent), no grid, custom `.surface-2 rounded-md p-2 text-xs` tooltip. Title `font-mono text-[11px] uppercase` "paste creation — 14d".
+    - Top languages: `.surface rounded-xl p-5`, list of language rows with mono name + animated width bar (`bg-brand/20` track, `bg-brand` fill via `motion.div` width animation) + count. Title "top languages".
+    - KPIs + stat cards wrapped in `<StaggerGroup stagger={0.07/0.06}>` + `<Reveal variant={scaleIn}>`.
+  - Users tab:
+    - `.surface rounded-xl p-3` filter bar: search input + status `Select` (all/active/pending/suspended/banned) + Search button.
+    - Table in `.surface rounded-xl overflow-hidden`, `max-h-[60vh] overflow-y-auto` with `[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30`. Sticky header.
+    - Columns: User (avatar+name+email), Role (badge), Status (badge: active=`bg-brand/15 text-brand`, suspended=`bg-amber-500/15 text-amber-500`, banned=`bg-destructive/15 text-destructive`), Pastes, Created, Actions (DropdownMenu: Activate/Suspend/Ban/Promote/Demote/Delete with `AlertDialog` confirm).
+    - Rows animate with `motion.tr` + `staggerContainer(0.04)` + `fadeUp` variants; hover `bg-surface-3`.
+    - Self-ban/suspend/delete blocked with sonner toast error and dropdown items disabled.
+  - Content tab:
+    - `.surface rounded-xl p-3` filter bar: search + "Flagged only" `Switch` + "Expired only" `Switch` + Search button.
+    - Table: Title/slug, Type, Lang, Vis, Views, Status (badges: expired/burned/flagged/active), Owner, Created, Actions (Flag/Unflag, Force expire, Delete confirm).
+    - Same container/scrollbar/hover/stagger pattern.
+  - Settings tab:
+    - `.surface rounded-2xl p-6` form. Grouped sections (General / Limits / Storage / SEO) with `font-mono text-[11px] uppercase tracking-wider text-muted-foreground` headers + `Divider`.
+    - Fields: siteName, tagline, defaultExpiry (Select), maxFileSizeBytes (number, MB ↔ bytes conversion), allowedFileTypes, storageDriver (Select local/s3), guestPostingEnabled (Switch), sitemapEnabled (Switch), metaTitleTemplate, metaDescriptionTemplate, robotsTxt (Textarea).
+    - Inputs `bg-surface-3 border-border rounded-md focus-visible:ring-brand`.
+    - Loads `api.admin.getSettings()` → first row. Save button `btn-shine bg-brand text-brand-foreground` → `api.admin.updateSettings(patch)` → toast.
+  - Audit Log tab:
+    - `.surface rounded-xl overflow-hidden` table, `max-h-[60vh] overflow-y-auto`.
+    - Columns: Time (mono), Admin (email), Action (badge: delete=`bg-destructive/15 text-destructive`, ban/suspend=`bg-amber-500/15 text-amber-500`, update/edit/set=`bg-brand/15 text-brand`, else muted), Target type, Target ID (mono truncated), Metadata (truncated + Eye button → `AlertDialog` with full `<pre>`).
+    - Rows animate with `motion.tr` stagger; empty state "No audit entries yet."
+  - All containers use `max-w-6xl mx-auto px-4 sm:px-6 py-8 md:py-10`.
+
+Constraints honored:
+- All three files are `'use client'`. TS strict, no `any`, no unused vars. `bun run lint` clean (0 errors / 0 warnings).
+- Signatures preserved: `AuthView({ mode }: { mode: 'login' | 'register' })`, `DashboardView()`, `AdminView()`.
+- `.surface` / `.surface-2` / `.surface-3` used throughout — NO `.glass` / `.glass-strong`.
+- Palette discipline: `brand` (lime) for hero/active/highlights, `brand-2` (coral) for secondary, `amber-500` for warning, `destructive` for danger. NO indigo/blue/violet/emerald.
+- shadcn components from `@/components/ui/*` (Tabs, Select, Switch, Collapsible, Dialog, AlertDialog, DropdownMenu, Input, Label, Textarea, Table, Button).
+- recharts: `AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer` for the traffic chart.
+- Motion helpers: `Reveal` (with `variant={scaleIn|fadeUp}` — note: actual prop name is `variant` singular per motion-helpers.tsx, the task brief said `variants` but the component only accepts `variant`), `StaggerGroup`, `AnimatedNumber`, `fadeUp`, `scaleIn`, `staggerContainer`.
+
+Stage Summary:
+- Auth view: terminal-styled card with strip header, lime brand mark, underline tabs, mono labels, dev-mode forgot-password flow with copy-token box.
+- Dashboard view: profile sidebar with API key management + collapsibles, paste list with filters + edit/delete actions, login gate.
+- Admin view: 5-tab vertical layout with Overview KPIs + traffic chart + animated language bars, Users table with status badges + dropdown actions + self-protection, Content table with flag/expire/delete, Settings form with 4 grouped sections, Audit table with action badges + metadata expansion.
+- All views use the new terminal-grade design language consistently. Lint clean. Compile clean. Preview via the Preview Panel (right side) or click "Open in New Tab".
+
+---
+Task ID: 12 (verification — history + new UI)
+Agent: orchestrator (main)
+Task: Browser-verify navigation history + new terminal-grade UI
+
+Work Log:
+- Navigation history verified end-to-end via Agent Browser:
+  1. Home (`#/`) → click Browse → URL becomes `#/browse` (history entry pushed).
+  2. Click a paste → URL becomes `#/p/<slug>` (history entry pushed).
+  3. Click Back button (header ChevronLeft) → navigates paste → browse → home (each click pops one history entry). ✅
+  4. Browser Forward button → navigates home → browse → paste. ✅
+  5. Deep-linking: opening `http://localhost:3000/#/p/<slug>` directly loads the paste view. ✅
+  6. Reload preserves the current view (hash persists). ✅
+- Fixed Back button: removed `disabled={!canGoBack}` (history.length is unreliable for this; native `history.back()` is a safe no-op when no history). Button is always enabled now.
+- Fixed hydration mismatch: store now initializes with `view: { name: 'home' }` for SSR consistency, then syncs to the real URL hash via `queueMicrotask` after hydration. `enableSystem={false}` on next-themes to force dark (avoids theme-class hydration mismatch).
+- New terminal-grade UI verified across all views:
+  - Home: `> new_paste.sh` mono eyebrow, "Share code, beautifully." headline with text-gradient, `.terminal-strip` window-chrome top bar (rose/amber/lime dots), underline tabs, borderless bottom-line inputs, Monaco in bordered surface-2 container, `.surface-2` sidebar with stacked radio cards, lime `btn-shine` Create button. Recent pastes staggered grid.
+  - Browse: `> ls /public` eyebrow, sticky `.surface` filter bar, scope ToggleGroup, staggered PasteCard grid, languages sidebar with brand-dot.
+  - Paste view: `> cat /p/<slug>` eyebrow, `.terminal-strip` Monaco container, action bar (Copy/Raw/Share), `.surface-2` sidebar with mono stats + AnimatedNumber views, related pastes.
+  - Auth: `.surface` card with `.terminal-strip` top bar, brand mark, mono uppercase labels, Fill button for demo creds, shake-on-error.
+  - Dashboard: `> ~/dashboard` eyebrow, `.surface` profile card with gradient avatar, AnimatedNumber paste count, collapsibles, PasteCard list with Edit/Delete.
+  - Admin: `> sudo admin` eyebrow, vertical tabs (mono uppercase), 4 KPI cards with AnimatedNumber + lift, lime AreaChart with gradient fill, animated language bars, glass-less tables with staggered rows.
+- Created a paste via the new UI → "Paste created" toast → navigated to paste view (history pushed) → Back button returned to home. ✅
+- Login as admin via Fill button → success → Dashboard + Admin nav appeared. ✅
+- Mobile (390×844): browse view renders responsively, auth view sticky footer confirmed (`sticks=true`).
+- Lint: 0 errors / 0 warnings. Dev server: all routes 200, no runtime errors (only cosmetic Framer Motion hydration warnings).
+
+Stage Summary:
+- Navigation history: FULLY WORKING. Every nav click (New/Browse/Dashboard/Admin/Login/Sign-up/open-paste) pushes a browser history entry. Back button (header) + browser Back/Forward + deep-linkable URLs (`/#/browse`, `/#/p/<slug>`, etc.) + reload-persists-view all work.
+- UI: completely redesigned in "terminal-grade" language — lime accent on deep charcoal, solid elevated surfaces (no glass blur), mono labels/tokens, `.terminal-strip` window chrome, purposeful restrained motion. All 6 views + header + footer + paste-card rebuilt.
+- Ready to preview via the Preview Panel (right) or "Open in New Tab".

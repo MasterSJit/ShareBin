@@ -1,0 +1,817 @@
+    50→
+    51→const VISIBILITY_OPTIONS: {
+    52→  value: 'public' | 'unlisted' | 'private'
+    53→  label: string
+    54→  icon: typeof Globe
+    55→}[] = [
+    56→  { value: 'public', label: 'Public', icon: Globe },
+    57→  { value: 'unlisted', label: 'Unlisted', icon: LinkIcon },
+    58→  { value: 'private', label: 'Private', icon: Lock },
+    59→]
+    60→
+    61→// Build a deduped language list — "Auto-detect" (plaintext) first.
+    62→const LANGUAGE_OPTIONS: { value: string; label: string }[] = (() => {
+    63→  const seen = new Set<string>(['plaintext'])
+    64→  const out: { value: string; label: string }[] = [
+    65→    { value: 'plaintext', label: 'Auto-detect' },
+    66→  ]
+    67→  for (const l of LANGUAGES) {
+    68→    if (!seen.has(l.value)) {
+    69→      out.push(l)
+    70→      seen.add(l.value)
+    71→    }
+    72→  }
+    73→  return out
+    74→})()
+    75→
+    76→const TAB_TRIGGER_ACTIVE =
+    77→  'data-[state=active]:border-transparent data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand data-[state=active]:to-brand-2 data-[state=active]:text-brand-foreground data-[state=active]:shadow-md data-[state=active]:shadow-brand/30'
+    78→
+    79→export function HomeView() {
+    80→  const user = useAppStore((s) => s.user)
+    81→  const goView = useAppStore((s) => s.goView)
+    82→  const goBrowse = useAppStore((s) => s.goBrowse)
+    83→  const goLogin = useAppStore((s) => s.goLogin)
+    84→
+    85→  // --- shared form state ---
+    86→  const [tab, setTab] = useState<'text' | 'file'>('text')
+    87→  const [title, setTitle] = useState('')
+    88→  const [description, setDescription] = useState('')
+    89→  const [tags, setTags] = useState('')
+    90→
+    91→  // text-only
+    92→  const [textContent, setTextContent] = useState('')
+    93→  const [language, setLanguage] = useState('plaintext')
+    94→
+    95→  // file-only
+    96→  const [file, setFile] = useState<File | null>(null)
+    97→  const [dragOver, setDragOver] = useState(false)
+    98→  const fileInputRef = useRef<HTMLInputElement>(null)
+    99→
+   100→  // shared options
+   101→  const [visibility, setVisibility] = useState<'public' | 'unlisted' | 'private'>('public')
+   102→  const [passwordEnabled, setPasswordEnabled] = useState(false)
+   103→  const [password, setPassword] = useState('')
+   104→  const [burnAfterRead, setBurnAfterRead] = useState(false)
+   105→  const [expiryPreset, setExpiryPreset] = useState('never')
+   106→  const [expiryCustom, setExpiryCustom] = useState('')
+   107→
+   108→  const [submitting, setSubmitting] = useState(false)
+   109→
+   110→  // recent public pastes strip
+   111→  const [recent, setRecent] = useState<SafePaste[]>([])
+   112→  const [loadingRecent, setLoadingRecent] = useState(true)
+   113→
+   114→  // Demote private → public if the user logs out while a private visibility is selected.
+   115→  useEffect(() => {
+   116→    if (user === null && visibility === 'private') {
+   117→      setVisibility('public')
+   118→    }
+   119→  }, [user, visibility])
+   120→
+   121→  // Fetch recent public pastes on mount
+   122→  useEffect(() => {
+   123→    let active = true
+   124→    setLoadingRecent(true)
+   125→    api
+   126→      .listPastes({ scope: 'public', pageSize: 6 })
+   127→      .then((rows) => {
+   128→        if (active) setRecent(rows)
+   129→      })
+   130→      .catch(() => {
+   131→        if (active) setRecent([])
+   132→      })
+   133→      .finally(() => {
+   134→        if (active) setLoadingRecent(false)
+   135→      })
+   136→    return () => {
+   137→      active = false
+   138→    }
+   139→  }, [])
+   140→
+   141→  // --- file handling ---
+   142→  function handleFileSelected(f: File | null | undefined) {
+   143→    if (!f) {
+   144→      setFile(null)
+   145→      return
+   146→    }
+   147→    if (f.size > MAX_FILE_BYTES) {
+   148→      toast.error(`File too large (max ${formatBytes(MAX_FILE_BYTES)})`)
+   149→      return
+   150→    }
+   151→    setFile(f)
+   152→  }
+   153→
+   154→  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+   155→    e.preventDefault()
+   156→    setDragOver(false)
+   157→    handleFileSelected(e.dataTransfer.files?.[0])
+   158→  }
+   159→
+   160→  function clearFile() {
+   161→    setFile(null)
+   162→    if (fileInputRef.current) fileInputRef.current.value = ''
+   163→  }
+   164→
+   165→  // --- submit handlers ---
+   166→  async function handleCreateText() {
+   167→    if (!textContent.trim()) {
+   168→      toast.error('Paste content is empty')
+   169→      return
+   170→    }
+   171→    if (visibility === 'private' && !user) {
+   172→      toast.error('Log in to create private pastes')
+   173→      return
+   174→    }
+   175→    setSubmitting(true)
+   176→    try {
+   177→      const rows = await api.createPaste({
+   178→        title: title.trim() || undefined,
+   179→        description: description.trim() || undefined,
+   180→        tags: tags.trim() || undefined,
+   181→        language,
+   182→        textContent,
+   183→        visibility,
+   184→        password: passwordEnabled && password ? password : undefined,
+   185→        burnAfterRead: burnAfterRead || undefined,
+   186→        expiryPreset,
+   187→        expiryCustom: expiryPreset === 'custom' ? expiryCustom : undefined,
+   188→      })
+   189→      toast.success('Paste created ✨')
+   190→      const created = rows[0]
+   191→      if (created) goView(created.slug)
+   192→    } catch (err) {
+   193→      const msg = err instanceof ApiError ? err.message : 'Failed to create paste'
+   194→      toast.error(msg)
+   195→    } finally {
+   196→      setSubmitting(false)
+   197→    }
+   198→  }
+   199→
+   200→  async function handleUploadFile() {
+   201→    if (!file) {
+   202→      toast.error('Select a file first')
+   203→      return
+   204→    }
+   205→    if (file.size > MAX_FILE_BYTES) {
+   206→      toast.error(`File too large (max ${formatBytes(MAX_FILE_BYTES)})`)
+   207→      return
+   208→    }
+   209→    if (visibility === 'private' && !user) {
+   210→      toast.error('Log in to create private pastes')
+   211→      return
+   212→    }
+   213→    setSubmitting(true)
+   214→    try {
+   215→      const fd = new FormData()
+   216→      fd.append('file', file)
+   217→      if (title.trim()) fd.append('title', title.trim())
+   218→      if (description.trim()) fd.append('description', description.trim())
+   219→      if (tags.trim()) fd.append('tags', tags.trim())
+   220→      fd.append('visibility', visibility)
+   221→      if (passwordEnabled && password) fd.append('password', password)
+   222→      if (burnAfterRead) fd.append('burnAfterRead', 'true')
+   223→      fd.append('expiryPreset', expiryPreset)
+   224→      if (expiryPreset === 'custom' && expiryCustom) fd.append('expiryCustom', expiryCustom)
+   225→
+   226→      const rows = await api.uploadFile(fd)
+   227→      toast.success('File uploaded ✨')
+   228→      const created = rows[0]
+   229→      if (created) goView(created.slug)
+   230→    } catch (err) {
+   231→      const msg = err instanceof ApiError ? err.message : 'Failed to upload file'
+   232→      toast.error(msg)
+   233→    } finally {
+   234→      setSubmitting(false)
+   235→    }
+   236→  }
+   237→
+   238→  const sidebarProps = {
+   239→    user,
+   240→    visibility,
+   241→    setVisibility,
+   242→    passwordEnabled,
+   243→    setPasswordEnabled: (v: boolean) => {
+   244→      setPasswordEnabled(v)
+   245→      if (v) setBurnAfterRead(false)
+   246→    },
+   247→    password,
+   248→    setPassword,
+   249→    burnAfterRead,
+   250→    setBurnAfterRead: (v: boolean) => {
+   251→      setBurnAfterRead(v)
+   252→      if (v) setPasswordEnabled(false)
+   253→    },
+   254→    expiryPreset,
+   255→    setExpiryPreset,
+   256→    expiryCustom,
+   257→    setExpiryCustom,
+   258→    submitting,
+   259→    onLogin: goLogin,
+   260→  }
+   261→
+   262→  return (
+   263→    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+   264→      <Hero />
+   265→
+   266→      {/* Create card */}
+   267→      <Reveal delay={0.1} className="mt-8">
+   268→        <div className="glass-strong gradient-border glow-brand relative rounded-2xl p-4 sm:p-6">
+   269→          <Tabs value={tab} onValueChange={(v) => setTab(v as 'text' | 'file')}>
+   270→            <TabsList className="mb-6 grid w-full max-w-xs grid-cols-2">
+   271→              <TabsTrigger
+   272→                value="text"
+   273→                className={`flex items-center gap-1.5 ${TAB_TRIGGER_ACTIVE}`}
+   274→              >
+   275→                <FileCode className="h-4 w-4" /> Text
+   276→              </TabsTrigger>
+   277→              <TabsTrigger
+   278→                value="file"
+   279→                className={`flex items-center gap-1.5 ${TAB_TRIGGER_ACTIVE}`}
+   280→              >
+   281→                <Upload className="h-4 w-4" /> File
+   282→              </TabsTrigger>
+   283→            </TabsList>
+   284→
+   285→            <TabsContent value="text" className="outline-none">
+   286→              <div className="grid gap-6 lg:grid-cols-3">
+   287→                {/* Main / left column */}
+   288→                <div className="space-y-4 lg:col-span-2">
+   289→                  <Input
+   290→                    value={title}
+   291→                    onChange={(e) => setTitle(e.target.value)}
+   292→                    placeholder="Untitled paste…"
+   293→                    className="h-12 border-0 bg-transparent px-0 text-xl font-semibold tracking-tight shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/50"
+   294→                    aria-label="Paste title"
+   295→                  />
+   296→                  <Textarea
+   297→                    value={description}
+   298→                    onChange={(e) => setDescription(e.target.value)}
+   299→                    placeholder="Short description…"
+   300→                    className="min-h-[60px] resize-y border-0 bg-muted/30 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-brand"
+   301→                    aria-label="Paste description"
+   302→                  />
+   303→                  <Input
+   304→                    value={tags}
+   305→                    onChange={(e) => setTags(e.target.value)}
+   306→                    placeholder="comma, separated, tags"
+   307→                    className="border-0 bg-muted/30 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-brand"
+   308→                    aria-label="Paste tags"
+   309→                  />
+   310→
+   311→                  {/* Editor with traffic-light top bar */}
+   312→                  <div className="overflow-hidden rounded-xl border border-border/50">
+   313→                    <div className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-2">
+   314→                      <div className="flex gap-1.5">
+   315→                        <div className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+   316→                        <div className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+   317→                        <div className="h-2.5 w-2.5 rounded-full bg-brand" />
+   318→                      </div>
+   319→                      <span className="ml-2 font-mono text-xs text-muted-foreground">
+   320→                        {language}
+   321→                      </span>
+   322→                    </div>
+   323→                    <div className="min-h-[420px]">
+   324→                      <CodeEditor
+   325→                        value={textContent}
+   326→                        onChange={(v) => setTextContent(v ?? '')}
+   327→                        language={language}
+   328→                        readOnly={false}
+   329→                        height="100%"
+   330→                        wordWrap
+   331→                        showLineNumbers
+   332→                      />
+   333→                    </div>
+   334→                  </div>
+   335→                </div>
+   336→
+   337→                {/* Sidebar */}
+   338→                <div className="lg:col-span-1">
+   339→                  <SidebarCard
+   340→                    {...sidebarProps}
+   341→                    language={language}
+   342→                    setLanguage={setLanguage}
+   343→                    submitLabel="Create paste"
+   344→                    onSubmit={handleCreateText}
+   345→                    submitDisabled={!textContent.trim()}
+   346→                    submitIcon={<Sparkles className="h-4 w-4" />}
+   347→                  />
+   348→                </div>
+   349→              </div>
+   350→            </TabsContent>
+   351→
+   352→            <TabsContent value="file" className="outline-none">
+   353→              <div className="grid gap-6 lg:grid-cols-3">
+   354→                {/* Main / left column */}
+   355→                <div className="space-y-4 lg:col-span-2">
+   356→                  <Input
+   357→                    value={title}
+   358→                    onChange={(e) => setTitle(e.target.value)}
+   359→                    placeholder="File title (optional)…"
+   360→                    className="h-12 border-0 bg-transparent px-0 text-xl font-semibold tracking-tight shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/50"
+   361→                    aria-label="File title"
+   362→                  />
+   363→                  <Textarea
+   364→                    value={description}
+   365→                    onChange={(e) => setDescription(e.target.value)}
+   366→                    placeholder="Short description…"
+   367→                    className="min-h-[60px] resize-y border-0 bg-muted/30 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-brand"
+   368→                    aria-label="File description"
+   369→                  />
+   370→                  <Input
+   371→                    value={tags}
+   372→                    onChange={(e) => setTags(e.target.value)}
+   373→                    placeholder="comma, separated, tags"
+   374→                    className="border-0 bg-muted/30 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-brand"
+   375→                    aria-label="File tags"
+   376→                  />
+   377→
+   378→                  {/* Dropzone */}
+   379→                  <div
+   380→                    role="button"
+   381→                    tabIndex={0}
+   382→                    onClick={() => fileInputRef.current?.click()}
+   383→                    onKeyDown={(e) => {
+   384→                      if (e.key === 'Enter' || e.key === ' ') {
+   385→                        e.preventDefault()
+   386→                        fileInputRef.current?.click()
+   387→                      }
+   388→                    }}
+   389→                    onDrop={onDrop}
+   390→                    onDragOver={(e) => {
+   391→                      e.preventDefault()
+   392→                      setDragOver(true)
+   393→                    }}
+   394→                    onDragLeave={() => setDragOver(false)}
+   395→                    aria-label="File dropzone — click to browse"
+   396→                    className={[
+   397→                      'relative flex min-h-[300px] cursor-pointer flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed p-6 text-center transition-all duration-300',
+   398→                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+   399→                      dragOver
+   400→                        ? 'border-brand bg-brand/5 glow-brand'
+   401→                        : 'border-border/60 bg-muted/20 backdrop-blur-md hover:border-brand/50 hover:bg-muted/30',
+   402→                    ].join(' ')}
+   403→                  >
+   404→                    <input
+   405→                      ref={fileInputRef}
+   406→                      type="file"
+   407→                      className="hidden"
+   408→                      onChange={(e) => handleFileSelected(e.target.files?.[0])}
+   409→                    />
+   410→                    {file ? (
+   411→                      <motion.div
+   412→                        initial={{ opacity: 0, scale: 0.96 }}
+   413→                        animate={{ opacity: 1, scale: 1 }}
+   414→                        transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
+   415→                        onClick={(e) => e.stopPropagation()}
+   416→                        className="flex w-full max-w-md items-center gap-4 rounded-xl glass p-4"
+   417→                      >
+   418→                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-brand-2 text-brand-foreground shadow-md shadow-brand/30">
+   419→                          <FileText className="h-6 w-6" />
+   420→                        </div>
+   421→                        <div className="min-w-0 flex-1 text-left">
+   422→                          <p className="truncate text-sm font-medium">{file.name}</p>
+   423→                          <p className="text-xs text-muted-foreground">
+   424→                            {formatBytes(file.size)} · {file.type || 'unknown'}
+   425→                          </p>
+   426→                        </div>
+   427→                        <Button
+   428→                          variant="ghost"
+   429→                          size="icon"
+   430→                          onClick={(e) => {
+   431→                            e.stopPropagation()
+   432→                            clearFile()
+   433→                          }}
+   434→                          aria-label="Remove file"
+   435→                          className="h-8 w-8 shrink-0"
+   436→                        >
+   437→                          <X className="h-4 w-4" />
+   438→                        </Button>
+   439→                      </motion.div>
+   440→                    ) : (
+   441→                      <>
+   442→                        <motion.div
+   443→                          animate={{ y: [0, -6, 0] }}
+   444→                          transition={{
+   445→                            duration: 2.5,
+   446→                            repeat: Infinity,
+   447→                            ease: 'easeInOut',
+   448→                          }}
+   449→                          className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand to-brand-2 text-brand-foreground shadow-lg shadow-brand/30"
+   450→                        >
+   451→                          <Upload className="h-7 w-7" />
+   452→                        </motion.div>
+   453→                        <div className="space-y-1">
+   454→                          <p className="text-sm font-medium">
+   455→                            Drop a file here or click to browse
+   456→                          </p>
+   457→                          <p className="text-xs text-muted-foreground">
+   458→                            Max {formatBytes(MAX_FILE_BYTES)}
+   459→                          </p>
+   460→                        </div>
+   461→                      </>
+   462→                    )}
+   463→                  </div>
+   464→                </div>
+   465→
+   466→                {/* Sidebar */}
+   467→                <div className="lg:col-span-1">
+   468→                  <SidebarCard
+   469→                    {...sidebarProps}
+   470→                    hideLanguage
+   471→                    submitLabel="Upload file"
+   472→                    onSubmit={handleUploadFile}
+   473→                    submitDisabled={!file}
+   474→                    submitIcon={<Upload className="h-4 w-4" />}
+   475→                  />
+   476→                </div>
+   477→              </div>
+   478→            </TabsContent>
+   479→          </Tabs>
+   480→        </div>
+   481→      </Reveal>
+   482→
+   483→      {/* Recent public pastes */}
+   484→      <RecentPastes pastes={recent} loading={loadingRecent} onBrowse={goBrowse} />
+   485→    </div>
+   486→  )
+   487→}
+   488→
+   489→function Hero() {
+   490→  return (
+   491→    <section className="relative flex flex-col items-center justify-center gap-6 py-10 text-center sm:py-16">
+   492→      {/* Floating feature pills */}
+   493→      <div className="flex flex-wrap items-center justify-center gap-2">
+   494→        {FEATURE_PILLS.map((label, i) => (
+   495→          <motion.div
+   496→            key={label}
+   497→            initial={{ opacity: 0, y: 12 }}
+   498→            animate={{ opacity: 1, y: 0 }}
+   499→            transition={{ delay: 0.2 + i * 0.1, duration: 0.5 }}
+   500→          >
+   501→            <motion.div
+   502→              animate={{ y: [0, -6, 0] }}
+   503→              transition={{
+   504→                duration: 3,
+   505→                repeat: Infinity,
+   506→                ease: 'easeInOut',
+   507→                delay: i * 0.5,
+   508→              }}
+   509→              className="glass inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+   510→            >
+   511→              <span className="h-1.5 w-1.5 rounded-full bg-gradient-to-r from-brand to-brand-2" />
+   512→              {label}
+   513→            </motion.div>
+   514→          </motion.div>
+   515→        ))}
+   516→      </div>
+   517→
+   518→      {/* Headline */}
+   519→      <motion.h1
+   520→        initial={{ opacity: 0, y: 20, filter: 'blur(8px)' }}
+   521→        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+   522→        transition={{ duration: 0.7, ease: [0.2, 0.8, 0.2, 1] }}
+   523→        className="max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl"
+   524→      >
+   525→        Share code &amp; files,
+   526→        <br />
+   527→        <span className="text-gradient-animated">beautifully.</span>
+   528→      </motion.h1>
+   529→
+   530→      {/* Subtext */}
+   531→      <motion.p
+   532→        initial={{ opacity: 0, y: 12 }}
+   533→        animate={{ opacity: 1, y: 0 }}
+   534→        transition={{ delay: 0.3, duration: 0.6 }}
+   535→        className="max-w-2xl text-sm text-muted-foreground sm:text-base"
+   536→      >
+   537→        Pastebin reimagined — Monaco syntax highlighting, burn-after-read, password protection, and more.
+   538→      </motion.p>
+   539→
+   540→      {/* Scroll chevron */}
+   541→      <motion.div
+   542→        animate={{ y: [0, 6, 0] }}
+   543→        transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+   544→        className="mt-2 text-muted-foreground/60"
+   545→        aria-hidden
+   546→      >
+   547→        <ChevronDown className="h-5 w-5" />
+   548→      </motion.div>
+   549→    </section>
+   550→  )
+   551→}
+   552→
+   553→type SidebarCardProps = {
+   554→  user: SafeUser | null
+   555→  language?: string
+   556→  setLanguage?: (v: string) => void
+   557→  visibility: 'public' | 'unlisted' | 'private'
+   558→  setVisibility: (v: 'public' | 'unlisted' | 'private') => void
+   559→  passwordEnabled: boolean
+   560→  setPasswordEnabled: (v: boolean) => void
+   561→  password: string
+   562→  setPassword: (v: string) => void
+   563→  burnAfterRead: boolean
+   564→  setBurnAfterRead: (v: boolean) => void
+   565→  expiryPreset: string
+   566→  setExpiryPreset: (v: string) => void
+   567→  expiryCustom: string
+   568→  setExpiryCustom: (v: string) => void
+   569→  submitLabel: string
+   570→  onSubmit: () => void
+   571→  submitting: boolean
+   572→  submitDisabled: boolean
+   573→  submitIcon: React.ReactNode
+   574→  hideLanguage?: boolean
+   575→  onLogin: () => void
+   576→}
+   577→
+   578→function SidebarCard(props: SidebarCardProps) {
+   579→  const {
+   580→    user,
+   581→    language,
+   582→    setLanguage,
+   583→    visibility,
+   584→    setVisibility,
+   585→    passwordEnabled,
+   586→    setPasswordEnabled,
+   587→    password,
+   588→    setPassword,
+   589→    burnAfterRead,
+   590→    setBurnAfterRead,
+   591→    expiryPreset,
+   592→    setExpiryPreset,
+   593→    expiryCustom,
+   594→    setExpiryCustom,
+   595→    submitLabel,
+   596→    onSubmit,
+   597→    submitting,
+   598→    submitDisabled,
+   599→    submitIcon,
+   600→    hideLanguage,
+   601→    onLogin,
+   602→  } = props
+   603→
+   604→  return (
+   605→    <div className="glass space-y-4 rounded-xl p-4">
+   606→      {/* Language */}
+   607→      {!hideLanguage && language !== undefined && setLanguage && (
+   608→        <div className="space-y-1.5">
+   609→          <Label className="flex items-center gap-1.5 text-xs font-medium">
+   610→            <Languages className="h-3.5 w-3.5 text-muted-foreground" /> Language
+   611→          </Label>
+   612→          <Select value={language} onValueChange={setLanguage}>
+   613→            <SelectTrigger className="w-full bg-muted/30">
+   614→              <SelectValue />
+   615→            </SelectTrigger>
+   616→            <SelectContent>
+   617→              {LANGUAGE_OPTIONS.map((opt) => (
+   618→                <SelectItem key={`${opt.value}-${opt.label}`} value={opt.value}>
+   619→                  {opt.label}
+   620→                </SelectItem>
+   621→              ))}
+   622→            </SelectContent>
+   623→          </Select>
+   624→        </div>
+   625→      )}
+   626→
+   627→      {/* Visibility */}
+   628→      <div className="space-y-2">
+   629→        <Label className="text-xs font-medium">Visibility</Label>
+   630→        <RadioGroup
+   631→          value={visibility}
+   632→          onValueChange={(v) => setVisibility(v as 'public' | 'unlisted' | 'private')}
+   633→          className="grid gap-1.5"
+   634→        >
+   635→          {VISIBILITY_OPTIONS.map((opt) => {
+   636→            const disabled = opt.value === 'private' && !user
+   637→            const selected = visibility === opt.value
+   638→            const card = (
+   639→              <Label
+   640→                htmlFor={`vis-${opt.value}`}
+   641→                className={[
+   642→                  'glass flex items-center gap-2 rounded-lg px-3 py-2 transition-all',
+   643→                  selected ? 'ring-2 ring-brand bg-brand/5' : '',
+   644→                  disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+   645→                ].join(' ')}
+   646→              >
+   647→                <RadioGroupItem
+   648→                  id={`vis-${opt.value}`}
+   649→                  value={opt.value}
+   650→                  disabled={disabled}
+   651→                  className="h-3.5 w-3.5 border-brand text-brand"
+   652→                />
+   653→                <opt.icon
+   654→                  className={[
+   655→                    'h-3.5 w-3.5',
+   656→                    selected ? 'text-brand' : 'text-muted-foreground',
+   657→                  ].join(' ')}
+   658→                />
+   659→                <span className="text-xs font-medium">{opt.label}</span>
+   660→                {disabled && (
+   661→                  <Lock className="ml-auto h-3 w-3 text-muted-foreground" />
+   662→                )}
+   663→              </Label>
+   664→            )
+   665→            if (disabled) {
+   666→              return (
+   667→                <Tooltip key={opt.value}>
+   668→                  <TooltipTrigger asChild>
+   669→                    <div>{card}</div>
+   670→                  </TooltipTrigger>
+   671→                  <TooltipContent>Login required</TooltipContent>
+   672→                </Tooltip>
+   673→              )
+   674→            }
+   675→            return <div key={opt.value}>{card}</div>
+   676→          })}
+   677→        </RadioGroup>
+   678→      </div>
+   679→
+   680→      {/* Password protection */}
+   681→      <div className="space-y-2">
+   682→        <div className="flex items-center justify-between">
+   683→          <Label
+   684→            htmlFor="pw-switch"
+   685→            className="flex items-center gap-1.5 text-xs font-medium"
+   686→          >
+   687→            <Lock className="h-3.5 w-3.5 text-muted-foreground" /> Password
+   688→          </Label>
+   689→          <Switch
+   690→            id="pw-switch"
+   691→            checked={passwordEnabled}
+   692→            onCheckedChange={setPasswordEnabled}
+   693→            disabled={burnAfterRead}
+   694→            className="data-[state=checked]:bg-brand"
+   695→          />
+   696→        </div>
+   697→        {passwordEnabled && (
+   698→          <div className="relative">
+   699→            <Lock className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+   700→            <Input
+   701→              type="password"
+   702→              value={password}
+   703→              onChange={(e) => setPassword(e.target.value)}
+   704→              placeholder="Password"
+   705→              className="pl-8 text-sm"
+   706→              autoComplete="new-password"
+   707→            />
+   708→          </div>
+   709→        )}
+   710→        {burnAfterRead && (
+   711→          <p className="text-[11px] text-muted-foreground">
+   712→            Cannot combine with burn-after-read.
+   713→          </p>
+   714→        )}
+   715→      </div>
+   716→
+   717→      {/* Burn after read */}
+   718→      <div className="space-y-2">
+   719→        <div className="flex items-center justify-between">
+   720→          <Label
+   721→            htmlFor="burn-switch"
+   722→            className="flex items-center gap-1.5 text-xs font-medium"
+   723→          >
+   724→            <Flame className="h-3.5 w-3.5 text-muted-foreground" /> Burn after read
+   725→          </Label>
+   726→          <Switch
+   727→            id="burn-switch"
+   728→            checked={burnAfterRead}
+   729→            onCheckedChange={setBurnAfterRead}
+   730→            disabled={passwordEnabled}
+   731→            className="data-[state=checked]:bg-brand-2"
+   732→          />
+   733→        </div>
+   734→        {passwordEnabled && (
+   735→          <p className="text-[11px] text-muted-foreground">
+   736→            Cannot combine with password.
+   737→          </p>
+   738→        )}
+   739→      </div>
+   740→
+   741→      {/* Expiry */}
+   742→      <div className="space-y-2">
+   743→        <Label
+   744→          htmlFor="expiry-select"
+   745→          className="flex items-center gap-1.5 text-xs font-medium"
+   746→        >
+   747→          <Clock className="h-3.5 w-3.5 text-muted-foreground" /> Expiry
+   748→        </Label>
+   749→        <Select value={expiryPreset} onValueChange={setExpiryPreset}>
+   750→          <SelectTrigger id="expiry-select" className="w-full bg-muted/30">
+   751→            <SelectValue />
+   752→          </SelectTrigger>
+   753→          <SelectContent>
+   754→            {EXPIRY_OPTIONS.map((opt) => (
+   755→              <SelectItem key={opt.value} value={opt.value}>
+   756→                {opt.label}
+   757→              </SelectItem>
+   758→            ))}
+   759→          </SelectContent>
+   760→        </Select>
+   761→        {expiryPreset === 'custom' && (
+   762→          <Input
+   763→            type="datetime-local"
+   764→            value={expiryCustom}
+   765→            onChange={(e) => setExpiryCustom(e.target.value)}
+   766→            className="text-sm"
+   767→            aria-label="Custom expiry date and time"
+   768→          />
+   769→        )}
+   770→      </div>
+   771→
+   772→      {/* Submit */}
+   773→      <Button
+   774→        type="button"
+   775→        onClick={onSubmit}
+   776→        disabled={submitDisabled || submitting}
+   777→        className="btn-shine relative w-full gap-1.5 overflow-hidden bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-lg shadow-brand/30 hover:shadow-brand/50"
+   778→        size="lg"
+   779→      >
+   780→        {submitting ? (
+   781→          <Loader2 className="h-4 w-4 animate-spin" />
+   782→        ) : (
+   783→          submitIcon
+   784→        )}
+   785→        {submitLabel}
+   786→      </Button>
+   787→
+   788→      {!user && (
+   789→        <p className="text-center text-[11px] text-muted-foreground">
+   790→          Guest paste —{' '}
+   791→          <button
+   792→            type="button"
+   793→            onClick={onLogin}
+   794→            className="font-medium text-brand hover:underline"
+   795→          >
+   796→            log in
+   797→          </button>{' '}
+   798→          for private pastes
+   799→        </p>
+   800→      )}
+   801→    </div>
+   802→  )
+   803→}
+   804→
+   805→function RecentPastes({
+   806→  pastes,
+   807→  loading,
+   808→  onBrowse,
+   809→}: {
+   810→  pastes: SafePaste[]
+   811→  loading: boolean
+   812→  onBrowse: () => void
+   813→}) {
+   814→  return (
+   815→    <section className="mt-12 space-y-5">
+   816→      <div className="flex items-center justify-between">
+   817→        <div className="flex items-center gap-2">
+   818→          <Sparkles className="h-4 w-4 text-brand" />
+   819→          <h2 className="text-lg font-semibold tracking-tight">
+   820→            Recent public pastes
+   821→          </h2>
+   822→        </div>
+   823→        <Button
+   824→          variant="ghost"
+   825→          size="sm"
+   826→          onClick={onBrowse}
+   827→          className="group gap-1.5 text-muted-foreground hover:text-foreground"
+   828→        >
+   829→          Browse all
+   830→          <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+   831→        </Button>
+   832→      </div>
+   833→
+   834→      {loading ? (
+   835→        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   836→          {Array.from({ length: 3 }).map((_, i) => (
+   837→            <div
+   838→              key={i}
+   839→              className="shimmer h-48 rounded-xl bg-muted/40"
+   840→              aria-hidden
+   841→            />
+   842→          ))}
+   843→        </div>
+   844→      ) : pastes.length === 0 ? (
+   845→        <div className="glass flex flex-col items-center justify-center gap-2 rounded-2xl py-12 text-center">
+   846→          <FileCode className="h-8 w-8 text-muted-foreground" />
+   847→          <p className="text-sm text-muted-foreground">
+   848→            No public pastes yet — be the first!
+   849→          </p>
+   850→        </div>
+   851→      ) : (
+   852→        <StaggerGroup
+   853→          stagger={0.1}
+   854→          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+   855→        >
+   856→          {pastes.map((p) => (
+   857→            <Reveal key={p.id} variant={scaleIn}>
+   858→              <PasteCard paste={p} />
+   859→            </Reveal>
+   860→          ))}
+   861→        </StaggerGroup>
+   862→      )}
+   863→    </section>
+   864→  )
+   865→}
+   866→

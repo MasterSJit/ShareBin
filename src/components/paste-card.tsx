@@ -1,27 +1,31 @@
 'use client'
 
+import { motion } from 'framer-motion'
 import {
-  ArrowRight,
-  Clock,
   Eye,
-  FileCode,
   FileText,
+  FileType,
   Flag,
   Flame,
   Globe,
-  Hash,
-  Link as LinkIcon,
+  Link as Link2,
   Lock,
 } from 'lucide-react'
 import type { SafePaste } from '@/lib/types'
 import { formatBytes, formatRelativeTime } from '@/lib/ui-utils'
 import { useAppStore } from '@/lib/store'
-import { TiltCard } from '@/components/motion-helpers'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 function VisibilityIcon({ v }: { v: string }) {
   if (v === 'public') return <Globe className="h-3 w-3" />
-  if (v === 'unlisted') return <LinkIcon className="h-3 w-3" />
+  if (v === 'unlisted') return <Link2 className="h-3 w-3" />
   return <Lock className="h-3 w-3" />
+}
+
+function visibilityLabel(v: string): string {
+  if (v === 'public') return 'Public'
+  if (v === 'unlisted') return 'Unlisted'
+  return 'Private'
 }
 
 export function PasteCard({ paste }: { paste: SafePaste }) {
@@ -30,131 +34,154 @@ export function PasteCard({ paste }: { paste: SafePaste }) {
   const title =
     paste.title ||
     (isFile ? paste.originalFileName || `/${paste.slug}` : `/${paste.slug}`)
-  const initials = (paste.ownerName || 'G').slice(0, 2).toUpperCase()
+  const ownerName = paste.ownerName || 'guest'
+  const isGuest = !paste.ownerName
   const preview =
     paste.contentType === 'text' && paste.textContent
-      ? paste.textContent.slice(0, 280) +
-        (paste.textContent.length > 280 ? '…' : '')
+      ? paste.textContent.slice(0, 200) +
+        (paste.textContent.length > 200 ? '…' : '')
       : null
 
   function open() {
     goView(paste.slug)
   }
-  function onKey(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      open()
-    }
-  }
 
   return (
-    <TiltCard intensity={6} className="h-full">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={open}
-        onKeyDown={onKey}
-        className="group glass gradient-border lift glow-brand-hover relative flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl p-5 outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-      >
-        {/* Top gradient beam — intensifies on hover */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand to-transparent opacity-40 transition-opacity duration-300 group-hover:opacity-100" />
+    <motion.button
+      type="button"
+      onClick={open}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
+      aria-label={`Open paste ${title}`}
+      className="group block w-full cursor-pointer rounded-xl text-left focus-brand"
+    >
+      <div className="surface relative flex h-full flex-col overflow-hidden rounded-xl p-4 transition-colors duration-300 group-hover:border-brand/40">
+        {/* Left border accent — bg-border default, bg-brand grows 0→100% from top on hover */}
+        <div
+          className="absolute left-0 top-0 h-full w-0.5 bg-border"
+          aria-hidden
+        />
+        <div
+          className="absolute left-0 top-0 w-0.5 origin-top bg-brand transition-[height] duration-300 ease-out group-hover:h-full"
+          style={{ height: 0 }}
+          aria-hidden
+        />
 
         {/* Header */}
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-brand-2 text-brand-foreground shadow-md shadow-brand/30 transition-transform duration-300 group-hover:scale-105">
+          <div
+            className={[
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
+              isFile
+                ? 'bg-brand/15 text-brand'
+                : 'bg-surface-3 text-muted-foreground',
+            ].join(' ')}
+          >
             {isFile ? (
-              <FileText className="h-5 w-5" />
+              <FileType className="h-4 w-4" />
             ) : (
-              <FileCode className="h-5 w-5" />
+              <FileText className="h-4 w-4" />
             )}
           </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-sm font-semibold tracking-tight">
-              {title}
-            </h3>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {isFile ? (
-                <span className="inline-flex items-center gap-1 rounded-md bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">
-                  <FileText className="h-2.5 w-2.5" />
-                  {formatBytes(paste.fileSizeBytes)}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-md bg-brand/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-brand">
-                  <Hash className="h-2.5 w-2.5" />
-                  {paste.language}
-                </span>
-              )}
-            </div>
-          </div>
+          <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
+            {title}
+          </h3>
+          {isFile ? (
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              {formatBytes(paste.fileSizeBytes)}
+            </span>
+          ) : (
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              {paste.language}
+            </span>
+          )}
         </div>
 
         {/* Description */}
         {paste.description && (
-          <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-2 line-clamp-1 text-xs text-muted-foreground">
             {paste.description}
           </p>
         )}
 
-        {/* Text preview */}
+        {/* Text preview (text pastes only) */}
         {preview && (
-          <pre className="mt-3 max-h-24 overflow-hidden rounded-lg bg-muted/30 p-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+          <pre className="mt-3 max-h-20 overflow-hidden rounded-md bg-muted/30 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground/80">
             {preview}
           </pre>
         )}
 
-        {/* Badges */}
-        {(paste.burnAfterRead || paste.hasPassword || paste.isFlagged) && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {paste.burnAfterRead && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-brand-2/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-2">
-                <Flame className="h-2.5 w-2.5" /> Burn
-              </span>
-            )}
-            {paste.hasPassword && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                <Lock className="h-2.5 w-2.5" /> Password
-              </span>
-            )}
-            {paste.isFlagged && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
-                <Flag className="h-2.5 w-2.5" /> Flagged
-              </span>
-            )}
-          </div>
-        )}
-
         {/* Footer */}
-        <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-4 text-[11px] text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-2 text-[8px] font-bold text-brand-foreground">
-              {initials}
-            </span>
-            <span className="max-w-[80px] truncate">
-              {paste.ownerName || 'guest'}
-            </span>
-          </div>
-          <span className="flex items-center gap-1 capitalize">
-            <VisibilityIcon v={paste.visibility} /> {paste.visibility}
+        <div className="mt-auto flex items-center gap-3 pt-4 font-mono text-[11px] text-muted-foreground">
+          {/* Owner */}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              className={[
+                'h-2 w-2 shrink-0 rounded-full',
+                isGuest
+                  ? 'bg-muted-foreground/40'
+                  : 'bg-gradient-to-br from-brand to-brand-2',
+              ].join(' ')}
+              aria-hidden
+            />
+            <span className="max-w-[80px] truncate">{ownerName}</span>
           </span>
+
+          {/* Visibility — icon + tooltip only */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-default">
+                <VisibilityIcon v={paste.visibility} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {visibilityLabel(paste.visibility)}
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Views */}
           <span className="flex items-center gap-1">
             <Eye className="h-3 w-3" /> {paste.viewCount}
           </span>
-          <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" /> {formatRelativeTime(paste.createdAt)}
-          </span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              open()
-            }}
-            className="btn-shine ml-auto inline-flex items-center gap-1 rounded-lg bg-gradient-to-r from-brand to-brand-2 px-2.5 py-1 text-[11px] font-semibold text-brand-foreground shadow-sm shadow-brand/30 transition-shadow hover:shadow-md hover:shadow-brand/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-          >
-            Open
-            <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-          </button>
+
+          {/* Time */}
+          <span>{formatRelativeTime(paste.createdAt)}</span>
+
+          {/* Right-aligned badges — icon-only with tooltips */}
+          <div className="ml-auto flex items-center gap-2">
+            {paste.burnAfterRead && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex cursor-default text-brand-2">
+                    <Flame className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">Burn after read</TooltipContent>
+              </Tooltip>
+            )}
+            {paste.hasPassword && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex cursor-default">
+                    <Lock className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">Password protected</TooltipContent>
+              </Tooltip>
+            )}
+            {paste.isFlagged && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex cursor-default text-destructive">
+                    <Flag className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">Flagged</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         </div>
       </div>
-    </TiltCard>
+    </motion.button>
   )
 }
