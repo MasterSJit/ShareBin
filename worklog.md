@@ -214,3 +214,181 @@ Stage Summary:
   - Sticky footer (verified)
 - Demo admin: admin@pasteshare.local / admin123
 - The app is ready for use. Users can preview it via the Preview Panel on the right side of the interface (click "Open in New Tab" for a separate browser tab).
+
+---
+Task ID: 7 (UI redesign — design system)
+Agent: orchestrator (main)
+Task: Build a modern, sleek, animated design system foundation
+
+Work Log:
+- Rewrote `src/app/globals.css` with a premium dark-first design system:
+  - New palette: emerald (`--brand`) + violet/fuchsia (`--brand-2`) accents (NO indigo/blue).
+  - Refined dark theme tokens (deeper charcoal background, glass-friendly cards).
+  - Custom utilities: `.glass`, `.glass-strong`, `.glow-brand`, `.glow-brand-hover`, `.glow-violet`, `.text-gradient`, `.text-gradient-animated`, `.gradient-border`, `.bg-grid`, `.bg-dots`, `.shimmer`, `.btn-shine`, `.lift`, `.focus-brand`, `.aurora-blob`.
+  - Keyframes: `shimmer-text`, `shimmer-sweep`, `float-slow`, `float-slower`, `pulse-glow`, `spin-slow`, `beam-rotate`, `gradient-pan`.
+  - Custom scrollbar (thin, rounded, brand-glow on hover).
+  - Selection styling with brand glow.
+  - Monaco editor transparent background tweak.
+- Created `src/components/motion-helpers.tsx` — Framer Motion toolkit:
+  - Variants: `fadeUp`, `fadeIn`, `scaleIn`, `slideInLeft`, `slideInRight`, `staggerContainer(stagger, delay)`.
+  - `<Reveal>` — animates on scroll-into-view (once).
+  - `<StaggerGroup>` — staggered children reveal.
+  - `<AnimatedNumber>` — spring-based count-up (in-view triggered).
+  - `<TiltCard>` — 3D mouse-tracking tilt.
+  - `<PageTransition>` — blur+slide page enter/exit wrapper.
+- Created `src/components/animated-background.tsx` — fixed aurora background: 3 floating blurred blobs (emerald/violet/fuchsia) + grid overlay + top/bottom vignettes. Pointer-events: none, z-[-10].
+- Updated `src/app/layout.tsx`: dark theme default (`className="dark"` on <html>), renders `<AnimatedBackground />` behind everything.
+- Rebuilt `src/components/header.tsx`: glass-strong sticky header, gradient logo with glow on hover, animated active-nav underline (`layoutId` magic move), animated theme toggle (rotate swap), gradient Sign-up button with `btn-shine`.
+- Rebuilt `src/components/footer.tsx`: glass footer, animated brand mark.
+- Updated `src/app/page.tsx`: wraps view switcher in `<AnimatePresence mode="wait">` + `<PageTransition>` for smooth blur/slide transitions between views.
+
+Stage Summary:
+- Design system live. Brand = emerald, accent gradient partner = violet/fuchsia. Glassmorphism + aurora bg + Framer Motion transitions are now globally available.
+- Downstream view agents MUST use these utilities: `.glass`, `.glass-strong`, `.text-gradient`, `.glow-brand`, `.btn-shine`, `.lift`, `.bg-grid`, and the motion helpers `<Reveal>`, `<StaggerGroup>`, `<AnimatedNumber>`, `<TiltCard>`, `<PageTransition>`. Do NOT introduce indigo/blue. Use `from-brand to-brand-2` for gradients.
+
+---
+Task ID: 8-b
+Agent: fullstack-developer (browse + paste views — UI redesign pass)
+Task: Rebuild Browse view + Paste view on the new design system (glass, gradients, glow, Framer Motion)
+
+Work Log:
+- Read worklog (esp. Task 7 design system), globals.css, motion-helpers.tsx, api-client.ts, store.ts, ui-utils.ts, types.ts, existing browse-view.tsx + paste-view.tsx, paste-card.tsx, code-editor.tsx, toggle-group.tsx to confirm exact APIs.
+- Rebuilt `src/components/views/browse-view.tsx` ('use client'):
+  - Page header (`<Reveal>`): large `text-gradient-animated` "Browse Pastes" headline + gradient Compass icon tile (from-brand to-brand-2 with glow) + subtitle "Discover public code & files shared by the community." Right-side glass pill showing total public pastes + language count (animated).
+  - Filter bar: `glass-strong gradient-border sticky top-20 rounded-2xl p-4`. Search Input (h-11, `bg-muted/30`, `pl-10` Search icon, `focus-visible:ring-2 focus-visible:ring-brand`). Refresh icon button (`btn-shine`, hover brand tint). Below: `ToggleGroup` of 3 scope pills — each `rounded-lg px-4 py-2`, active = `bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-lg shadow-brand/30`, inactive = `glass text-muted-foreground`. When scope==='language' a `<Select>` reveals with framer-motion enter animation showing `{language} ({count})`.
+  - Results: `<StaggerGroup stagger={0.06}>` wrapping `grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5`. Each paste = `<Reveal variant={scaleIn}><PasteCard paste={p} /></Reveal>`.
+  - Loading: 6 shimmer skeleton cards (`shimmer glass rounded-2xl p-5 h-52`).
+  - Empty: centered `glass rounded-2xl` card with SearchX icon in gradient-tinted circle, "No pastes found", helper text, and `btn-shine` "Create one" gradient button → `goHome()`.
+  - Error: glass card with AlertCircle in destructive circle + retry button.
+  - Pagination: `btn-shine` "Load more" gradient button with Loader2 spinner state; end-of-list message when no more.
+  - Languages sidebar (xl only, `sticky top-44`): `glass rounded-2xl p-4` titled "Top Languages" with gradient underline (`h-0.5 from-brand to-brand-2`). Top 12 languages as clickable chips wrapped in `<StaggerGroup stagger={0.04}>` — each chip is a `<Reveal variant={scaleIn}>` button, `lift glow-brand-hover`, active = `bg-brand/15 text-brand`, count badge in pill.
+  - Result summary line above grid with scope label + query highlight + monospace count pill.
+  - All imports clean; `framer-motion` `motion` used for select reveal.
+- Rebuilt `src/components/views/paste-view.tsx` ('use client'):
+  - Loading state: centered animated `Loader2` spinner (`text-brand animate-spin`) + `text-gradient` "Loading paste…" text + shimmer skeleton of the layout.
+  - 404: `glass-strong gradient-border` motion card with Ghost icon in gradient-tinted circle, "Paste not found", description, gradient "Back to browse" button.
+  - 410: same motion card with Flame icon, "This paste has expired or been burned." + explanation.
+  - Other error: motion card with AlertTriangle.
+  - Password gate: `glass-strong gradient-border glow-brand` motion card max-w-md with framer-motion shake animation on wrong password (`animate: { x: [0, -8, 8, -6, 6, 0] }` keyed off `shakeKey`). Top: `animate-pulse-glow` Lock icon in gradient circle (`from-brand to-brand-2`) with blurred glow layer. Paste title + "This paste is password-protected." Password Input with Lock prefix (`bg-muted/30 pl-10 focus-visible:ring-2 focus-visible:ring-brand`). Unlock button: `btn-shine bg-gradient-to-r from-brand to-brand-2 text-brand-foreground shadow-lg shadow-brand/30` with Loader2 spinner while submitting. Attempt counter: "X attempts remaining" muted by default, turns `text-destructive` when `<=2`. Wrong password: motion-entered red error text + shake. On success: `markUnlocked(paste.id)` + `toast.success('Unlocked 🔓')` + re-fetch.
+  - Burn-after-read banner: `glass border-brand-2/40 rounded-xl p-4` with `animate-pulse-glow`, Flame icon in gradient tile, "This paste was burned after reading — it is now permanently deleted." Separate expired & flagged banners (destructive tones).
+  - Main layout: `lg:grid lg:grid-cols-3 gap-6`. Main col `lg:col-span-2`:
+    - Paste header: title h1 with `text-gradient`, language/file badge (`from-brand/15 to-brand-2/15`), description, tags as `glass rounded-full px-2.5 py-0.5` chips.
+    - Action bar (text pastes): `glass rounded-xl p-2` with Copy/Raw/Share ghost buttons (`bg-muted/40 hover:bg-brand/15 hover:text-brand`). Raw = anchor to `/api/paste/raw?id=${slug}`. Share copies slug, toast `Share code: {slug} copied`.
+    - Text content: `glass min-h-[500px] rounded-xl border border-border/50` container. Top bar with traffic-light dots (red/amber/brand) + mono language label + `read-only` badge in brand tint. Monaco `CodeEditor` readOnly height=600px below.
+    - File content: `glass rounded-2xl p-6` card with large gradient file icon tile (from-brand to-brand-2 with blurred glow), name, size + mime, mono mime badge, big `btn-shine` gradient Download button.
+    - Related: "More in {language}" h3 (Sparkles + text-gradient mono language) above `<StaggerGroup stagger={0.08}>` of 3 PasteCards.
+  - Sidebar `lg:col-span-1` (`lg:sticky lg:top-20`): `Card glass-strong gradient-border rounded-2xl`.
+    - Owner row: gradient-initials Avatar (`from-brand to-brand-2`), name, "owner" label in brand uppercase.
+    - 2-col grid of StatTile components (glass rounded-lg) for Visibility / Language (mono) / Views (`<AnimatedNumber>` count-up) / Type / Created (relative + Tooltip absolute) / Expires (relative or "Never").
+    - Badges row: burn (brand-2 tint), password, flagged (destructive) — only when applicable.
+    - If `user?.id === paste.ownerId`: Edit button (toasts "Open Dashboard to edit") + Delete button → `AlertDialog` confirm → `api.deletePaste` → `goBrowse()` + toast.
+    - Footer shows `/{slug}` in mono.
+  - StatTile, StateCard, PasteSkeleton helpers extracted. All shadcn components reused (Card family, Button, Badge, Input, Skeleton, Avatar, Tooltip, Separator, AlertDialog). Lucide icons: ArrowLeft, Lock, Eye, Globe, Link, Clock, Hourglass, Flame, Copy, Code, Share2, Download, FileText, Trash2, Pencil, AlertTriangle, ShieldAlert, User, Calendar, SearchX, Ghost, Sparkles, Loader2, Flag. NO indigo/blue. TypeScript strict, no `any`, no unused vars.
+- Lint: `bun run lint` → 0 errors, 0 warnings across the whole project (including the two new view files). Dev server recompiled cleanly.
+
+Stage Summary:
+- Both views rebuilt on the design system with full glassmorphism, gradient borders, brand-glow, staggered entrances, hover lifts, and micro-interactions. Browse: animated header, sticky glass filter bar with gradient scope pills, 3-col staggered PasteCard grid, shimmer skeletons, glass empty/error states, gradient Load-more, xl-only Top Languages sidebar with chip lifts + glows. Paste: animated Loader2 + gradient "Loading paste…" skeleton, motion 404/410/error state cards, glass-strong gradient-border password gate with pulse-glow Lock + framer-motion shake on wrong password, burn-after-read banner with pulse-glow border, glass editor container with traffic-light top bar + read-only badge, gradient file download card, sticky glass-strong metadata sidebar with AnimatedNumber views + 2-col stat tiles + owner gradient avatar + owner-only Edit/Delete with AlertDialog, related-pastes StaggerGroup. Both files keep their original prop signatures and only touch files within scope. No files outside the two view files were modified.
+
+---
+Task ID: 8-a
+Agent: subagent (UI redesign — home + paste card)
+Task: Rebuild HomeView + PasteCard with modern, sleek, animated UI using the Task-7 design system
+
+Work Log:
+- Rebuilt `src/components/paste-card.tsx`:
+  - Wrapped the entire card in `<TiltCard intensity={6}>` for subtle 3D mouse-tilt.
+  - Card root uses `glass gradient-border lift glow-brand-hover` + `rounded-2xl p-5` + `relative flex flex-col h-full`. Role="button", tabIndex=0, keyboard handler (Enter/Space) → `goView(paste.slug)`.
+  - Top gradient beam: a 1px `bg-gradient-to-r from-transparent via-brand to-transparent` strip at the top that goes from opacity-40 → opacity-100 on group-hover.
+  - Header: 40×40 gradient (`from-brand to-brand-2`) rounded square icon (FileCode for text, FileText for files) with `shadow-md shadow-brand/30` and `group-hover:scale-105` micro-interaction. Title is truncated. Below: language badge (`bg-brand/10 text-brand font-mono` + Hash icon) for text pastes, or file-size badge (`bg-muted/40` + FileText icon) for files.
+  - Description: `line-clamp-2 text-xs text-muted-foreground`.
+  - Text preview (`paste.contentType === 'text'` only): `<pre>` with `bg-muted/30`, `max-h-24 overflow-hidden`, monospace, first 280 chars + ellipsis.
+  - Badges row: burn (`bg-brand-2/15 text-brand-2` + Flame), password (`bg-muted/40` + Lock), flagged (`bg-destructive/15 text-destructive` + Flag).
+  - Footer (`mt-auto`): owner avatar (5×5 gradient circle with initials in brand-foreground), visibility icon (Globe/Link/Lock) + capitalized label, view count with Eye, relative time with Clock, and an "Open" button on the right with `btn-shine` + gradient bg + shadow-brand + `group-hover:translate-x-0.5` ArrowRight micro-interaction.
+  - Whole card click → `goView(paste.slug)`; Open button stops propagation then opens.
+  - No motion import (entrance handled by parent `<Reveal>` in the recent pastes grid).
+- Rebuilt `src/components/views/home-view.tsx`:
+  - **Hero** (`<Hero>`): centered column. Three floating feature pills (`motion.div animate={{ y: [0, -6, 0] }}` infinite, staggered delays 0/0.5/1.0s) each with `glass rounded-full px-3 py-1 text-xs` + a gradient dot (`from-brand to-brand-2`). Animated headline: "Share code & files," + line break + "beautifully." with `text-gradient-animated` (blur+slide entrance via motion). Subtext fades in. Bouncing `ChevronDown` chevron at bottom.
+  - **Create card** wrapped in `<Reveal delay={0.1}>` then a `glass-strong gradient-border glow-brand rounded-2xl p-4 sm:p-6` container.
+  - **Tabs** (Text/File) with custom active styling: `data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand data-[state=active]:to-brand-2 data-[state=active]:text-brand-foreground data-[state=active]:shadow-md data-[state=active]:shadow-brand/30 data-[state=active]:border-transparent`. `TabsList` is a 2-col grid max-w-xs.
+  - **Text tab**: `grid gap-6 lg:grid-cols-3`. Main `lg:col-span-2`: borderless-feel title input (`h-12 border-0 bg-transparent px-0 text-xl font-semibold`), description textarea, tags input (both `bg-muted/30`), then the Monaco editor inside a `rounded-xl overflow-hidden border border-border/50` container with a top bar showing a traffic light (3 dots: `bg-rose-500`, `bg-amber-500`, `bg-brand`) + the current language label in mono. Editor min-h-[420px].
+  - **File tab**: same 2-col layout. Dropzone `min-h-[300px]` with `border-2 border-dashed` that becomes `border-brand bg-brand/5 glow-brand` on drag-over, else `border-border/60 bg-muted/20 backdrop-blur-md hover:border-brand/50`. When empty: an animated (`y: [0,-6,0]` infinite) 14×14 gradient icon with Upload, "Drop a file here or click to browse", "Max 25 MB". When file selected: `motion.div` file card (opacity+scale entrance) with gradient icon, name (truncate), size·type, and an X remove button.
+  - **Sidebar** (`lg:col-span-1`): a `glass rounded-xl p-4 space-y-4` settings card.
+    - Language `<Select>` (trigger `bg-muted/30`) — text tab only.
+    - Visibility `<RadioGroup>` with custom-styled cards: each option is a `<Label>` styled as `glass rounded-lg px-3 py-2` with `RadioGroupItem` + icon + label; selected → `ring-2 ring-brand bg-brand/5` + brand-tinted icon; Private disabled for guests → opacity-60 + lock icon + Tooltip "Login required".
+    - Password `<Switch data-[state=checked]:bg-brand>` + revealing password input with leading Lock icon. Disables burn switch when ON.
+    - Burn after read `<Switch data-[state=checked]:bg-brand-2>` + Flame icon. Disables password switch when ON.
+    - Expiry `<Select>` + conditional datetime-local input for `custom`.
+    - Submit button: full-width, `btn-shine`, `bg-gradient-to-r from-brand to-brand-2 text-brand-foreground`, `shadow-lg shadow-brand/30 hover:shadow-brand/50`, Sparkles/Upload icon, Loader2 spinner while submitting. Disabled if empty.
+    - Guest hint: muted "Guest paste — log in for private pastes" with a `text-brand hover:underline` login button calling `goLogin()` (shown only when `user` is null).
+  - Submit handlers unchanged from before: `api.createPaste(body)` → `toast.success('Paste created ✨')` → `goView(slug)`; `api.uploadFile(fd)` → `toast.success('File uploaded ✨')` → `goView(slug)`. Errors via `toast.error(msg)`.
+  - **Recent public pastes strip** (`<RecentPastes>`): section header with `Sparkles` icon (brand) + "Recent public pastes" h2 + ghost "Browse all →" button (ArrowRight with `group-hover:translate-x-0.5`). Loading: 3 `shimmer h-48 rounded-xl bg-muted/40` skeletons. Empty: glass card with FileCode icon + message. Grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`) wrapped in `<StaggerGroup stagger={0.1}>` with each `<PasteCard>` wrapped in `<Reveal variant={scaleIn}>`.
+- Used `container mx-auto max-w-7xl px-4 sm:px-6 py-8`.
+- All colors restricted to `brand` (emerald) + `brand-2` (violet) + `destructive` + `muted`/`foreground` tokens. NO indigo/blue. Traffic light uses rose/amber/brand.
+- TypeScript strict, no `any`, no unused vars. Prop signatures preserved: `PasteCard({ paste }: { paste: SafePaste })` and `HomeView()` (no props).
+- Lint: `bun run lint` reports 0 errors (1 pre-existing warning in `admin-view.tsx`, out of scope).
+- Dev server (port 3000) compiles cleanly: GET / 200, GET /api/paste?scope=public&pageSize=6 200, GET /api/auth/me 200/401. Verified end-to-end: created a paste via the new UI → PUT /api/paste 201 → navigated to paste view via `goView(slug)`.
+
+Stage Summary:
+- Home view is now a premium, animated "New Paste" experience: animated gradient hero, glass-strong create card with gradient border + emerald glow, styled Text/File tabs, Monaco editor with traffic-light top bar, glass settings sidebar with custom radio cards + brand-colored switches, animated file dropzone, and a staggered recent-pastes grid.
+- PasteCard is a tilt-enabled, glass, gradient-bordered card with hover lift + emerald glow + intensifying top beam, full metadata footer, and a gradient Open button with shine sweep.
+- Both files use only the Task-7 design-system utilities (`.glass`, `.glass-strong`, `.gradient-border`, `.glow-brand`, `.glow-brand-hover`, `.text-gradient-animated`, `.shimmer`, `.btn-shine`, `.lift`, `.focus-brand`) and motion helpers (`<Reveal>`, `<StaggerGroup>`, `<TiltCard>`, `scaleIn`).
+
+---
+Task ID: 8-c
+Agent: full-stack-developer (auth + dashboard + admin rebuild)
+Task: Rebuild Auth, Dashboard, and Admin views using the Task-7 design system (glass, gradients, glow, motion helpers, brand/brand-2 palette).
+
+Work Log:
+- Read worklog (especially Task 7 design-system section), `motion-helpers.tsx`, `api-client.ts`, `store.ts`, `ui-utils.ts`, `types.ts`, `paste-card.tsx`, `globals.css`, existing view files, shadcn `tabs.tsx` / `table.tsx` / `dropdown-menu.tsx` / `alert-dialog.tsx` to confirm exact APIs.
+- Rebuilt `src/components/views/auth-view.tsx` ('use client'):
+  - Centered `max-w-md` layout on `flex-1 flex items-center justify-center px-4 py-10` with ambient brand blur behind.
+  - Animated brand mark: rotating conic-gradient ring (`animate-spin-slow`), `animate-pulse-glow` aura, gradient core circle (`from-brand to-brand-2`) with `FileCode` icon. "PasteShare" wordmark uses `text-gradient-animated`.
+  - Tabs styled `data-[state=active]:bg-gradient-to-r from-brand to-brand-2 data-[state=active]:text-brand-foreground data-[state=active]:shadow-brand/30`. Tab change calls `goLogin()/goRegister()`.
+  - Form card: `glass-strong rounded-2xl gradient-border p-6 glow-brand`, wrapped in `<Reveal variant={scaleIn}>`. Inputs use `bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand`. Inline validation errors animate with framer-motion keyframe shake (`x: [0, -6, 6, -4, 4, 0]`).
+  - Submit button: full-width gradient `from-brand to-brand-2`, `btn-shine`, `shadow-lg shadow-brand/30`, `hover:scale-[1.01]`, `Loader2` spinner while submitting.
+  - Forgot password inline flow: email → dev token shown in glass code box with Copy button → reset form (token + new password) → success toast + back-to-login. Demo credentials hint: glass box with `Sparkles` icon + one-click "Fill" button.
+  - Login success → `setUser(user)` + `goHome()` + `toast.success('Welcome back ✨')`. Register success → `toast.success('Account created 🎉')`.
+- Rebuilt `src/components/views/dashboard-view.tsx` ('use client'):
+  - Null-user guard: `glass-strong gradient-border rounded-2xl p-8` card with gradient "Log in" button → `goLogin()`.
+  - Header: avatar (ring-2 ring-brand/40) + "My Dashboard" `text-gradient` + greeting.
+  - Layout: `lg:grid lg:grid-cols-3 gap-6`. Profile card (col-span-1) + My Pastes (col-span-2).
+  - Profile card (`glass-strong gradient-border p-5 glow-brand-hover`): avatar wrapped in gradient ring p-[2px], role badge (admin = `bg-brand/15 text-brand` + Crown), status badge (active=brand, banned=destructive, suspended/pending=amber), API key mono box with Show/Hide + Copy + Regenerate. Collapsibles (Edit profile, Change password) with rotating ChevronDown and gradient Save buttons. Danger zone with destructive border + AlertDialog (`glass-strong`) confirm → `api.deleteAccount` → `setUser(null)` + `goHome()`. Sections wrapped in `<StaggerGroup>` + `<motion.div variants={fadeUp}>`.
+  - My Pastes: header h2 with `<AnimatedNumber>` counter, gradient "New paste" button → `goHome()`. Filter chips (All/Active/Expired/Burned/Flagged) — `glass rounded-full`, active = `bg-brand/15 text-brand`. List: `<StaggerGroup stagger={0.05}>` of `<motion.div variants={fadeUp}>` wrapping each `<PasteCard>` with small Edit/Delete action row BELOW (PasteCard unmodified). Loading: 4 shimmer skeletons. Empty: glass card with "Create your first paste" gradient button. Edit Dialog (`glass-strong`) for title/desc/tags/lang/visibility/expiry/burn → `api.updatePaste`. Delete AlertDialog → `api.deletePaste`.
+- Rebuilt `src/components/views/admin-view.tsx` ('use client'):
+  - Non-admin guard: glass card with destructive Lock + "Back to home" gradient button.
+  - Header: gradient 11×11 tile with Shield + "Admin Panel" `text-gradient`.
+  - Vertical Tabs (`orientation="vertical"`). TabsList: `glass grid grid-cols-5 gap-1 rounded-xl p-1.5 lg:flex lg:w-56 lg:flex-col`. Each trigger: `data-[state=active]:bg-gradient-to-r from-brand to-brand-2 data-[state=active]:text-brand-foreground data-[state=active]:shadow-lg data-[state=active]:shadow-brand/20` with lucide icon.
+  - **Overview**: 4 KPI cards (`grid-cols-2 lg:grid-cols-4`), each `glass lift glow-brand-hover rounded-2xl p-5` with gradient icon tile (brand→brand-2, brand-2→fuchsia, amber→brand, rose→brand-2 — NO blue), `<AnimatedNumber>` value, label. Wrapped in `<StaggerGroup stagger={0.08}>` + `<Reveal variants={scaleIn}>`. 2 secondary stat cards (Flagged / Burned) side by side. Traffic chart: `glass rounded-2xl p-5`, recharts `AreaChart` with emerald line + gradient fill area (`<defs>` linearGradient `trafficFill` brand→transparent), minimal axes, custom `GlassTooltip` (glass-strong). Top languages: animated bar list with each bar `bg-gradient-to-r from-brand to-brand-2` and `whileInView` width animation.
+  - **Users**: glass search + status Select bar. Table in `glass rounded-2xl overflow-hidden max-h-[60vh] overflow-y-auto` with custom scrollbar (`[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30`). Rows are `motion.tr` with `initial={{opacity:0,y:8}}` + index-based stagger (replaced unsupported `<StaggerGroup as="tbody">`). `hover:bg-brand/5`. Columns: User (gradient-ring avatar + name + email), Role badge (admin = brand + Crown), Status badge (color-coded), Pastes, Created, Actions (DropdownMenu: Verify/Activate, Suspend, Ban, Make admin / Demote, Delete with AlertDialog confirm). Self-ban/self-demote/self-delete guarded with toast error.
+  - **Content**: glass bar with Search + Flagged-only Switch + Expired-only Switch. Table with Title/slug, Type, Lang, Visibility, Views, Status (color-coded badge), Owner, Created, Actions (DropdownMenu: Flag/Unflag, Force expire, Visibility public/unlisted/private, Delete confirm).
+  - **Settings**: `glass-strong gradient-border p-6` form. Save button: gradient + `btn-shine`. Fields grouped into General / Limits / Storage / SEO sections with section titles (brand icon + uppercase tracking-wider) and `<Separator>` dividers. All inputs `bg-muted/30 focus-visible:ring-2 focus-visible:ring-brand`. Loads via `api.admin.getSettings()`, saves via `api.admin.updateSettings(patch)` + toast.
+  - **Audit Log**: `glass rounded-2xl overflow-hidden max-h-[60vh] overflow-y-auto`. Animated `motion.tr` rows. Columns: Time, Admin email, Action (badge color by action type — delete=destructive, ban/suspend=amber, update/verify=brand), Target type, Target ID (truncated mono), Metadata (expandable ChevronRight/Down into `<pre>` block). Empty state: centered glass card with ShieldAlert icon.
+- Lint: `bun run lint` → 0 errors, 0 warnings across all three files (after fixing an `AlertDialogTrigger` import and replacing the `any`-typed GlassTooltip with a typed `TooltipEntry` interface).
+- Dev log: clean compiles (`✓ Compiled in 126ms`, etc.) with no JSX/SWC errors. `GET / 200` and `GET /api/auth/me 200` observed.
+
+Stage Summary:
+- Auth / Dashboard / Admin views are rebuilt on the Task-7 design system. Glassmorphism + gradient brand identity (emerald → violet, NO indigo/blue) + glow + staggered Framer Motion entrances are applied throughout. AnimatedNumber counters on dashboard paste count and admin KPIs. Hover lifts on every card. Micro-interactions on every button/row/card. Self-ban/demote/delete guards on admin. All API calls go through the existing `api` client; all navigation through `useAppStore`. Existing prop signatures preserved (`AuthView({ mode })`, `DashboardView()`, `AdminView()`). No files outside the three view files (and worklog/agent-ctx) were modified.
+
+---
+Task ID: 9 (UI redesign — verification)
+Agent: orchestrator (main)
+Task: Browser-verify the redesigned UI, fix sticky-footer edge cases
+
+Work Log:
+- Verified via Agent Browser (desktop 1440x900 + mobile 390x844/932):
+  1. Home view: animated gradient headline "Share code & files, beautifully." with floating feature pills, glass-strong create card with gradient border + glow, styled Text/File tabs with gradient active triggers, Monaco editor with traffic-light top bar, glass settings sidebar with custom radio-card visibility + brand/brand-2 switches, gradient Create button with btn-shine. Recent pastes grid with staggered scale-in reveal.
+  2. Created a paste via new UI → "Paste created ✨" toast, navigated to paste view (animated page transition), content rendered in glass Monaco container, Copy/Raw/Share actions, "More in plaintext" related section.
+  3. Browse view: animated gradient header, sticky glass-strong filter bar with gradient scope pills, staggered PasteCard grid, Top Languages sidebar.
+  4. Auth view (login): animated rotating conic-gradient brand mark with pulse-glow, glass-strong gradient-border form card with glow, gradient tabs, "Welcome back" heading, demo credentials with one-click "Fill" button (auto-populated admin email), login succeeded.
+  5. Admin Overview: 4 KPI cards with AnimatedNumber count-up + lift + glow-brand-hover, emerald AreaChart with gradient fill, top-languages bar list, all on brand/brand-2 palette.
+  6. Dashboard: glass-strong profile card with gradient-ring avatar, role/status badges, API key controls, collapsibles; My Pastes with AnimatedNumber count + filter chips + staggered list.
+- Fixed auth-view mobile compactness: reduced py-10→py-6, brand mark h-20→h-16 on mobile, card p-6→p-5 on mobile. Footer now sticks to bottom on iPhone 14 Pro Max (932px) and desktop; on very short mobile (844px) the form slightly exceeds viewport so footer correctly pushes down (natural scroll = correct sticky behavior).
+- Final lint: 0 errors / 0 warnings.
+- Final dev log: all routes 200, no runtime/console errors.
+- All 6 views (home, browse, paste-view, auth, dashboard, admin) + header + footer + paste-card rebuilt on the new design system.
+
+Stage Summary:
+- PasteShare UI completely transformed: premium dark theme with animated aurora background (emerald/violet/fuchsia blobs + grid), glassmorphism throughout, gradient text/borders/buttons, Framer Motion page transitions + scroll reveals + staggered entrances + 3D tilt cards + animated number counters, micro-interactions on every interactive element (hover lifts, glow, shine sweeps, scale taps).
+- Color discipline maintained: emerald (brand) + violet/fuchsia (brand-2) only — zero indigo/blue.
+- Responsive (mobile + desktop) with sticky footer verified.
+- The app is ready. Preview via the Preview Panel (right side) or click "Open in New Tab".

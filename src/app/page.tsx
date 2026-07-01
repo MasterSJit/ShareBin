@@ -10,6 +10,8 @@ import { PasteView } from '@/components/views/paste-view'
 import { DashboardView } from '@/components/views/dashboard-view'
 import { AdminView } from '@/components/views/admin-view'
 import { AuthView } from '@/components/views/auth-view'
+import { PageTransition } from '@/components/motion-helpers'
+import { AnimatePresence } from 'framer-motion'
 
 export default function Home() {
   const { view, loadingUser } = useAppStore()
@@ -19,15 +21,24 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [view])
 
+  const viewKey =
+    view.name === 'view' ? `view:${view.idOrSlug}` : view.name
+
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col">
       <Header />
-      <main className="flex-1">
-        {loadingUser && view.name === 'admin' ? (
-          <div className="flex h-[60vh] items-center justify-center text-muted-foreground">Loading…</div>
-        ) : (
-          <ViewSwitcher />
-        )}
+      <main className="relative flex-1">
+        <AnimatePresence mode="wait">
+          <PageTransition key={viewKey} k={viewKey}>
+            {loadingUser && view.name === 'admin' ? (
+              <div className="flex h-[60vh] items-center justify-center text-muted-foreground">
+                Loading…
+              </div>
+            ) : (
+              <ViewSwitcher />
+            )}
+          </PageTransition>
+        </AnimatePresence>
       </main>
       <Footer />
     </div>

@@ -1,0 +1,736 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useState, type ReactNode } from 'react'
+     4→import {
+     5→  Card,
+     6→  CardContent,
+     7→  CardDescription,
+     8→  CardFooter,
+     9→  CardHeader,
+    10→  CardTitle,
+    11→} from '@/components/ui/card'
+    12→import { Button } from '@/components/ui/button'
+    13→import { Badge } from '@/components/ui/badge'
+    14→import { Input } from '@/components/ui/input'
+    15→import { Skeleton } from '@/components/ui/skeleton'
+    16→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    17→import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+    18→import { Separator } from '@/components/ui/separator'
+    19→import {
+    20→  AlertDialog,
+    21→  AlertDialogAction,
+    22→  AlertDialogCancel,
+    23→  AlertDialogContent,
+    24→  AlertDialogDescription,
+    25→  AlertDialogFooter,
+    26→  AlertDialogHeader,
+    27→  AlertDialogTitle,
+    28→} from '@/components/ui/alert-dialog'
+    29→import { CodeEditor } from '@/components/editor/code-editor'
+    30→import { PasteCard } from '@/components/paste-card'
+    31→import { api, ApiError, getUnlockedHeader, markUnlocked } from '@/lib/api-client'
+    32→import { useAppStore } from '@/lib/store'
+    33→import { formatBytes, formatRelativeTime, formatDate } from '@/lib/ui-utils'
+    34→import type { SafePaste } from '@/lib/types'
+    35→import { toast } from 'sonner'
+    36→import {
+    37→  ArrowLeft,
+    38→  Lock,
+    39→  Eye,
+    40→  Globe,
+    41→  Link as LinkIcon,
+    42→  Clock,
+    43→  Hourglass,
+    44→  Flame,
+    45→  Copy,
+    46→  Code,
+    47→  Share2,
+    48→  Download,
+    49→  FileText,
+    50→  Trash2,
+    51→  Pencil,
+    52→  AlertTriangle,
+    53→  ShieldAlert,
+    54→  User as UserIcon,
+    55→  Calendar,
+    56→  SearchX,
+    57→  Ghost,
+    58→  Sparkles,
+    59→} from 'lucide-react'
+    60→
+    61→type PasteWithGate = SafePaste & { passwordRequired?: boolean }
+    62→
+    63→const MAX_ATTEMPTS = 5
+    64→
+    65→export function PasteView({ idOrSlug }: { idOrSlug: string }) {
+    66→  const goBrowse = useAppStore((s) => s.goBrowse)
+    67→  const user = useAppStore((s) => s.user)
+    68→
+    69→  const [paste, setPaste] = useState<PasteWithGate | null>(null)
+    70→  const [loading, setLoading] = useState(true)
+    71→  const [notFound, setNotFound] = useState(false)
+    72→  const [gone, setGone] = useState(false)
+    73→  const [loadError, setLoadError] = useState<string | null>(null)
+    74→
+    75→  const [passwordInput, setPasswordInput] = useState('')
+    76→  const [unlocking, setUnlocking] = useState(false)
+    77→  const [unlockError, setUnlockError] = useState<string | null>(null)
+    78→  const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
+    79→
+    80→  const [related, setRelated] = useState<SafePaste[]>([])
+    81→  const [deleteOpen, setDeleteOpen] = useState(false)
+    82→  const [deleting, setDeleting] = useState(false)
+    83→
+    84→  // Fetch the paste on mount (parent remounts via key on slug change).
+    85→  useEffect(() => {
+    86→    let alive = true
+    87→    setLoading(true)
+    88→    setNotFound(false)
+    89→    setGone(false)
+    90→    setLoadError(null)
+    91→    setPaste(null)
+    92→    setRelated([])
+    93→    setUnlockError(null)
+    94→    setAttemptsLeft(MAX_ATTEMPTS)
+    95→
+    96→    api
+    97→      .getPaste(idOrSlug)
+    98→      .then((rows) => {
+    99→        if (!alive) return
+   100→        const p = rows[0]
+   101→        if (!p) {
+   102→          setNotFound(true)
+   103→          return
+   104→        }
+   105→        setPaste(p)
+   106→        if (!p.passwordRequired && p.language) loadRelated(p)
+   107→      })
+   108→      .catch((e: unknown) => {
+   109→        if (!alive) return
+   110→        if (e instanceof ApiError) {
+   111→          if (e.status === 404) setNotFound(true)
+   112→          else if (e.status === 410) setGone(true)
+   113→          else setLoadError(e.message)
+   114→        } else {
+   115→          setLoadError('Failed to load paste')
+   116→        }
+   117→      })
+   118→      .finally(() => {
+   119→        if (alive) setLoading(false)
+   120→      })
+   121→
+   122→    function loadRelated(p: SafePaste) {
+   123→      api
+   124→        .listPastes({ scope: 'language', language: p.language, pageSize: 4 })
+   125→        .then((list) => {
+   126→          if (alive) setRelated(list.filter((r) => r.id !== p.id).slice(0, 3))
+   127→        })
+   128→        .catch(() => {
+   129→          /* related is optional */
+   130→        })
+   131→    }
+   132→
+   133→    return () => {
+   134→      alive = false
+   135→    }
+   136→  }, [idOrSlug])
+   137→
+   138→  async function handleUnlock(e: React.FormEvent) {
+   139→    e.preventDefault()
+   140→    if (!paste || unlocking || attemptsLeft <= 0) return
+   141→    setUnlocking(true)
+   142→    setUnlockError(null)
+   143→    try {
+   144→      await api.unlockPaste(paste.id, passwordInput)
+   145→      markUnlocked(paste.id)
+   146→      toast.success('Unlocked')
+   147→      setPasswordInput('')
+   148→      // Re-fetch — the x-unlocked header is now attached automatically.
+   149→      const rows = await api.getPaste(idOrSlug)
+   150→      const fresh = rows[0]
+   151→      if (fresh) {
+   152→        setPaste(fresh)
+   153→        if (fresh.language) {
+   154→          api
+   155→            .listPastes({ scope: 'language', language: fresh.language, pageSize: 4 })
+   156→            .then((list) =>
+   157→              setRelated(list.filter((r) => r.id !== fresh.id).slice(0, 3)),
+   158→            )
+   159→            .catch(() => {})
+   160→        }
+   161→      }
+   162→    } catch (e: unknown) {
+   163→      const next = attemptsLeft - 1
+   164→      setAttemptsLeft(next)
+   165→      if (e instanceof ApiError && e.status === 401) {
+   166→        setUnlockError(
+   167→          next > 0
+   168→            ? `Incorrect password. ${next} attempt${next === 1 ? '' : 's'} remaining.`
+   169→            : 'No attempts remaining. Please contact the paste owner.',
+   170→        )
+   171→      } else {
+   172→        setUnlockError('Failed to unlock paste. Please try again.')
+   173→      }
+   174→    } finally {
+   175→      setUnlocking(false)
+   176→    }
+   177→  }
+   178→
+   179→  async function handleCopy() {
+   180→    if (!paste?.textContent) return
+   181→    try {
+   182→      await navigator.clipboard.writeText(paste.textContent)
+   183→      toast.success('Copied to clipboard')
+   184→    } catch {
+   185→      toast.error('Failed to copy')
+   186→    }
+   187→  }
+   188→
+   189→  async function handleShare() {
+   190→    if (!paste) return
+   191→    try {
+   192→      await navigator.clipboard.writeText(paste.slug)
+   193→      toast.success(`Share code: ${paste.slug} copied`)
+   194→    } catch {
+   195→      toast.error('Failed to copy share code')
+   196→    }
+   197→  }
+   198→
+   199→  async function handleDownload() {
+   200→    if (!paste) return
+   201→    const headers: Record<string, string> = {}
+   202→    const unlocked = getUnlockedHeader()
+   203→    if (unlocked) headers['x-unlocked'] = unlocked
+   204→    try {
+   205→      const res = await fetch(api.fileDownloadUrl(paste.slug), {
+   206→        credentials: 'include',
+   207→        headers,
+   208→      })
+   209→      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+   210→      const blob = await res.blob()
+   211→      const url = URL.createObjectURL(blob)
+   212→      const a = document.createElement('a')
+   213→      a.href = url
+   214→      a.download = paste.originalFileName || paste.slug
+   215→      document.body.appendChild(a)
+   216→      a.click()
+   217→      a.remove()
+   218→      URL.revokeObjectURL(url)
+   219→      toast.success('Download started')
+   220→    } catch {
+   221→      toast.error('Download failed')
+   222→    }
+   223→  }
+   224→
+   225→  async function handleDelete() {
+   226→    if (!paste || deleting) return
+   227→    setDeleting(true)
+   228→    try {
+   229→      await api.deletePaste(paste.id)
+   230→      toast.success('Paste deleted')
+   231→      goBrowse()
+   232→    } catch (e: unknown) {
+   233→      toast.error(e instanceof ApiError ? e.message : 'Failed to delete paste')
+   234→    } finally {
+   235→      setDeleting(false)
+   236→      setDeleteOpen(false)
+   237→    }
+   238→  }
+   239→
+   240→  // --- State: loading ---
+   241→  if (loading) return <PasteSkeleton />
+   242→
+   243→  // --- State: not found ---
+   244→  if (notFound)
+   245→    return (
+   246→      <StateCard
+   247→        icon={SearchX}
+   248→        title="Paste not found"
+   249→        description="The paste you're looking for doesn't exist, has been deleted, or the link is incorrect."
+   250→        onBack={goBrowse}
+   251→      />
+   252→    )
+   253→
+   254→  // --- State: gone (expired/burned before any content returned) ---
+   255→  if (gone)
+   256→    return (
+   257→      <StateCard
+   258→        icon={Ghost}
+   259→        title="This paste is gone"
+   260→        description="This paste has expired or was burned after reading and is no longer available."
+   261→        onBack={goBrowse}
+   262→      />
+   263→    )
+   264→
+   265→  // --- State: other load error ---
+   266→  if (loadError)
+   267→    return (
+   268→      <StateCard
+   269→        icon={AlertTriangle}
+   270→        title="Couldn't load paste"
+   271→        description={loadError}
+   272→        onBack={goBrowse}
+   273→      />
+   274→    )
+   275→
+   276→  if (!paste) return null
+   277→
+   278→  // --- State: password gate ---
+   279→  if (paste.passwordRequired) {
+   280→    return (
+   281→      <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+   282→        <Button variant="ghost" size="sm" onClick={goBrowse} className="mb-6 gap-1.5">
+   283→          <ArrowLeft className="h-4 w-4" /> Back to browse
+   284→        </Button>
+   285→        <div className="flex min-h-[60vh] items-center justify-center">
+   286→          <Card className="w-full max-w-md">
+   287→            <CardHeader className="text-center">
+   288→              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+   289→                <Lock className="h-7 w-7 text-primary" />
+   290→              </div>
+   291→              <CardTitle className="text-xl">
+   292→                {paste.title || `/${paste.slug}`}
+   293→              </CardTitle>
+   294→              <CardDescription>
+   295→                This paste is password-protected. Enter the password to view its contents.
+   296→              </CardDescription>
+   297→            </CardHeader>
+   298→            <CardContent>
+   299→              <form onSubmit={handleUnlock} className="space-y-3">
+   300→                <Input
+   301→                  type="password"
+   302→                  value={passwordInput}
+   303→                  onChange={(e) => setPasswordInput(e.target.value)}
+   304→                  placeholder="Password"
+   305→                  autoFocus
+   306→                  disabled={unlocking || attemptsLeft <= 0}
+   307→                  aria-label="Paste password"
+   308→                />
+   309→                {unlockError && (
+   310→                  <p className="flex items-center gap-1.5 text-sm text-destructive">
+   311→                    <AlertTriangle className="h-3.5 w-3.5" /> {unlockError}
+   312→                  </p>
+   313→                )}
+   314→                <div className="flex items-center justify-between text-xs text-muted-foreground">
+   315→                  <span className="flex items-center gap-1">
+   316→                    <ShieldAlert className="h-3 w-3" />
+   317→                    {attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} remaining
+   318→                  </span>
+   319→                  <span className="font-mono">{paste.language}</span>
+   320→                </div>
+   321→                <Button
+   322→                  type="submit"
+   323→                  className="w-full"
+   324→                  disabled={unlocking || attemptsLeft <= 0 || passwordInput.length === 0}
+   325→                >
+   326→                  {unlocking ? 'Unlocking…' : 'Unlock paste'}
+   327→                </Button>
+   328→              </form>
+   329→            </CardContent>
+   330→          </Card>
+   331→        </div>
+   332→      </div>
+   333→    )
+   334→  }
+   335→
+   336→  // --- State: full view ---
+   337→  const isOwner = !!user && !!paste.ownerId && user.id === paste.ownerId
+   338→  const visMeta = visibilityMeta(paste.visibility)
+   339→  const showBurnedBanner = paste.burnAfterRead && paste.isBurned
+   340→  const showBurnWarning = paste.burnAfterRead && !paste.isBurned
+   341→  const showExpiredBanner = paste.isExpired && !paste.isBurned
+   342→
+   343→  return (
+   344→    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+   345→      <Button variant="ghost" size="sm" onClick={goBrowse} className="mb-4 gap-1.5">
+   346→        <ArrowLeft className="h-4 w-4" /> Back to browse
+   347→      </Button>
+   348→
+   349→      {/* Status banners */}
+   350→      {showBurnedBanner && (
+   351→        <AlertBanner tone="amber" icon={Flame} title="This paste was burned after reading">
+   352→          It has been permanently deleted from the server. The content shown below is the only
+   353→          remaining copy.
+   354→        </AlertBanner>
+   355→      )}
+   356→      {showBurnWarning && (
+   357→        <AlertBanner tone="amber" icon={Flame} title="Burn after read — caution">
+   358→          Viewing this paste has triggered permanent deletion. It cannot be recovered once you
+   359→          leave this page.
+   360→        </AlertBanner>
+   361→      )}
+   362→      {showExpiredBanner && (
+   363→        <AlertBanner tone="red" icon={Hourglass} title="This paste has expired">
+   364→          It is no longer accessible to new viewers.
+   365→        </AlertBanner>
+   366→      )}
+   367→      {paste.isFlagged && (
+   368→        <AlertBanner tone="red" icon={ShieldAlert} title="This paste has been flagged">
+   369→          It was flagged by a moderator and may violate community guidelines.
+   370→        </AlertBanner>
+   371→      )}
+   372→
+   373→      <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+   374→        {/* Main column */}
+   375→        <div className="min-w-0">
+   376→          {/* Title + description + tags */}
+   377→          <div className="mb-4">
+   378→            <div className="flex flex-wrap items-start gap-2">
+   379→              <h1 className="min-w-0 flex-1 text-2xl font-bold tracking-tight sm:text-3xl">
+   380→                {paste.title || (paste.contentType === 'file' ? paste.originalFileName : `/${paste.slug}`)}
+   381→              </h1>
+   382→              <Badge variant="secondary" className="font-mono text-xs">
+   383→                {paste.contentType === 'file' ? 'file' : paste.language}
+   384→              </Badge>
+   385→            </div>
+   386→            {paste.description && (
+   387→              <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+   388→                {paste.description}
+   389→              </p>
+   390→            )}
+   391→            {paste.tags.length > 0 && (
+   392→              <div className="mt-3 flex flex-wrap gap-1.5">
+   393→                {paste.tags.map((t) => (
+   394→                  <Badge key={t} variant="outline" className="text-xs">
+   395→                    #{t}
+   396→                  </Badge>
+   397→                ))}
+   398→              </div>
+   399→            )}
+   400→          </div>
+   401→
+   402→          {/* Action bar (text pastes only) */}
+   403→          {paste.contentType === 'text' && (
+   404→            <div className="mb-3 flex flex-wrap items-center gap-2">
+   405→              <Button variant="outline" size="sm" onClick={handleCopy} disabled={!paste.textContent}>
+   406→                <Copy className="h-4 w-4" /> Copy
+   407→              </Button>
+   408→              <Button variant="outline" size="sm" asChild>
+   409→                <a
+   410→                  href={`/api/paste/raw?id=${encodeURIComponent(paste.slug)}`}
+   411→                  target="_blank"
+   412→                  rel="noreferrer"
+   413→                >
+   414→                  <Code className="h-4 w-4" /> Raw
+   415→                </a>
+   416→              </Button>
+   417→              <Button variant="outline" size="sm" onClick={handleShare}>
+   418→                <Share2 className="h-4 w-4" /> Share
+   419→              </Button>
+   420→            </div>
+   421→          )}
+   422→
+   423→          {/* Content */}
+   424→          {paste.contentType === 'text' ? (
+   425→            <div className="overflow-hidden rounded-lg border bg-[#1e1e1e]">
+   426→              <CodeEditor
+   427→                value={paste.textContent || ''}
+   428→                language={paste.language}
+   429→                readOnly
+   430→                height="600px"
+   431→              />
+   432→            </div>
+   433→          ) : (
+   434→            <Card>
+   435→              <CardContent className="flex flex-col items-center gap-4 px-6 py-8 text-center sm:flex-row sm:text-left">
+   436→                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+   437→                  <FileText className="h-7 w-7 text-primary" />
+   438→                </div>
+   439→                <div className="min-w-0 flex-1">
+   440→                  <p className="truncate font-medium">
+   441→                    {paste.originalFileName || `/${paste.slug}`}
+   442→                  </p>
+   443→                  <p className="mt-0.5 text-sm text-muted-foreground">
+   444→                    {formatBytes(paste.fileSizeBytes)}
+   445→                    {paste.mimeType ? ` · ${paste.mimeType}` : ''}
+   446→                  </p>
+   447→                </div>
+   448→                <Button onClick={handleDownload} className="gap-1.5">
+   449→                  <Download className="h-4 w-4" /> Download
+   450→                </Button>
+   451→              </CardContent>
+   452→            </Card>
+   453→          )}
+   454→
+   455→          {/* Related pastes */}
+   456→          {related.length > 0 && (
+   457→            <section className="mt-10">
+   458→              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+   459→                <Sparkles className="h-4 w-4 text-primary" /> More in {paste.language}
+   460→              </h2>
+   461→              <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-3">
+   462→                {related.map((p) => (
+   463→                  <PasteCard key={p.id} paste={p} />
+   464→                ))}
+   465→              </div>
+   466→            </section>
+   467→          )}
+   468→        </div>
+   469→
+   470→        {/* Sidebar */}
+   471→        <aside className="lg:sticky lg:top-16 lg:self-start">
+   472→          <Card className="rounded-xl">
+   473→            <CardHeader className="pb-3">
+   474→              <CardTitle className="text-sm">Details</CardTitle>
+   475→            </CardHeader>
+   476→            <CardContent className="space-y-3">
+   477→              {/* Owner */}
+   478→              <div className="flex items-center gap-2.5">
+   479→                <Avatar className="h-8 w-8">
+   480→                  <AvatarFallback className="bg-primary/10 text-xs text-primary">
+   481→                    {paste.ownerName
+   482→                      ? paste.ownerName.slice(0, 2).toUpperCase()
+   483→                      : <UserIcon className="h-3.5 w-3.5" />}
+   484→                  </AvatarFallback>
+   485→                </Avatar>
+   486→                <div className="min-w-0">
+   487→                  <p className="truncate text-sm font-medium">
+   488→                    {paste.ownerName || 'Guest'}
+   489→                  </p>
+   490→                  <p className="text-xs text-muted-foreground">Author</p>
+   491→                </div>
+   492→              </div>
+   493→
+   494→              <Separator />
+   495→
+   496→              <MetaRow icon={visMeta.icon} label="Visibility">
+   497→                <Badge variant="outline" className="gap-1 text-xs">
+   498→                  {visMeta.label}
+   499→                </Badge>
+   500→              </MetaRow>
+   501→
+   502→              {paste.contentType === 'text' && (
+   503→                <MetaRow icon={Code} label="Language">
+   504→                  <span className="font-mono">{paste.language}</span>
+   505→                </MetaRow>
+   506→              )}
+   507→
+   508→              <MetaRow icon={Eye} label="Views">{paste.viewCount}</MetaRow>
+   509→
+   510→              <MetaRow icon={Calendar} label="Created">
+   511→                <Tooltip>
+   512→                  <TooltipTrigger asChild>
+   513→                    <span className="cursor-help">{formatRelativeTime(paste.createdAt)}</span>
+   514→                  </TooltipTrigger>
+   515→                  <TooltipContent>{formatDate(paste.createdAt)}</TooltipContent>
+   516→                </Tooltip>
+   517→              </MetaRow>
+   518→
+   519→              <MetaRow icon={Clock} label="Updated">
+   520→                <Tooltip>
+   521→                  <TooltipTrigger asChild>
+   522→                    <span className="cursor-help">{formatRelativeTime(paste.updatedAt)}</span>
+   523→                  </TooltipTrigger>
+   524→                  <TooltipContent>{formatDate(paste.updatedAt)}</TooltipContent>
+   525→                </Tooltip>
+   526→              </MetaRow>
+   527→
+   528→              <MetaRow icon={Hourglass} label="Expires">
+   529→                {paste.expiresAt ? (
+   530→                  <Tooltip>
+   531→                    <TooltipTrigger asChild>
+   532→                      <span className="cursor-help">{formatRelativeTime(paste.expiresAt)}</span>
+   533→                    </TooltipTrigger>
+   534→                    <TooltipContent>{formatDate(paste.expiresAt)}</TooltipContent>
+   535→                  </Tooltip>
+   536→                ) : (
+   537→                  <span>Never</span>
+   538→                )}
+   539→              </MetaRow>
+   540→
+   541→              <Separator />
+   542→
+   543→              <div className="flex flex-wrap gap-1.5">
+   544→                {paste.burnAfterRead && (
+   545→                  <Badge variant="destructive" className="gap-1 text-xs">
+   546→                    <Flame className="h-3 w-3" /> Burn{paste.isBurned ? 'ed' : ' after read'}
+   547→                  </Badge>
+   548→                )}
+   549→                {paste.hasPassword && (
+   550→                  <Badge variant="outline" className="gap-1 text-xs">
+   551→                    <Lock className="h-3 w-3" /> Password
+   552→                  </Badge>
+   553→                )}
+   554→                {paste.isFlagged && (
+   555→                  <Badge variant="destructive" className="gap-1 text-xs">
+   556→                    <ShieldAlert className="h-3 w-3" /> Flagged
+   557→                  </Badge>
+   558→                )}
+   559→                {paste.contentType === 'file' && (
+   560→                  <Badge variant="secondary" className="gap-1 text-xs">
+   561→                    <FileText className="h-3 w-3" /> File
+   562→                  </Badge>
+   563→                )}
+   564→              </div>
+   565→
+   566→              {/* Owner actions */}
+   567→              {isOwner && (
+   568→                <>
+   569→                  <Separator />
+   570→                  <div className="flex flex-col gap-2 pt-1">
+   571→                    <Button
+   572→                      variant="outline"
+   573→                      size="sm"
+   574→                      className="w-full gap-1.5"
+   575→                      onClick={() =>
+   576→                        toast.message('Editing is not available in this view — use Dashboard.')
+   577→                      }
+   578→                    >
+   579→                      <Pencil className="h-4 w-4" /> Edit
+   580→                    </Button>
+   581→                    <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+   582→                      <Button
+   583→                        variant="destructive"
+   584→                        size="sm"
+   585→                        className="w-full gap-1.5"
+   586→                        onClick={() => setDeleteOpen(true)}
+   587→                      >
+   588→                        <Trash2 className="h-4 w-4" /> Delete
+   589→                      </Button>
+   590→                      <AlertDialogContent>
+   591→                        <AlertDialogHeader>
+   592→                          <AlertDialogTitle>Delete this paste?</AlertDialogTitle>
+   593→                          <AlertDialogDescription>
+   594→                            This action cannot be undone. The paste &ldquo;
+   595→                            {paste.title || paste.slug}&rdquo; will be permanently removed.
+   596→                          </AlertDialogDescription>
+   597→                        </AlertDialogHeader>
+   598→                        <AlertDialogFooter>
+   599→                          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+   600→                          <AlertDialogAction
+   601→                            onClick={handleDelete}
+   602→                            disabled={deleting}
+   603→                            className="bg-destructive text-white hover:bg-destructive/90"
+   604→                          >
+   605→                            {deleting ? 'Deleting…' : 'Delete paste'}
+   606→                          </AlertDialogAction>
+   607→                        </AlertDialogFooter>
+   608→                      </AlertDialogContent>
+   609→                    </AlertDialog>
+   610→                  </div>
+   611→                </>
+   612→              )}
+   613→            </CardContent>
+   614→            <CardFooter className="pt-0">
+   615→              <p className="w-full text-center font-mono text-[10px] text-muted-foreground">
+   616→                /{paste.slug}
+   617→              </p>
+   618→            </CardFooter>
+   619→          </Card>
+   620→        </aside>
+   621→      </div>
+   622→    </div>
+   623→  )
+   624→}
+   625→
+   626→// ---------- helpers ----------
+   627→
+   628→function visibilityMeta(v: string) {
+   629→  if (v === 'public') return { icon: Globe, label: 'Public' }
+   630→  if (v === 'unlisted') return { icon: LinkIcon, label: 'Unlisted' }
+   631→  return { icon: Lock, label: 'Private' }
+   632→}
+   633→
+   634→function MetaRow({
+   635→  icon: Icon,
+   636→  label,
+   637→  children,
+   638→}: {
+   639→  icon: typeof Eye
+   640→  label: string
+   641→  children: ReactNode
+   642→}) {
+   643→  return (
+   644→    <div className="flex items-center justify-between gap-2 text-sm">
+   645→      <span className="flex items-center gap-1.5 text-muted-foreground">
+   646→        <Icon className="h-3.5 w-3.5" /> {label}
+   647→      </span>
+   648→      <span className="min-w-0 max-w-[60%] truncate text-right font-medium">{children}</span>
+   649→    </div>
+   650→  )
+   651→}
+   652→
+   653→function AlertBanner({
+   654→  tone,
+   655→  icon: Icon,
+   656→  title,
+   657→  children,
+   658→}: {
+   659→  tone: 'amber' | 'red'
+   660→  icon: typeof Flame
+   661→  title: string
+   662→  children: ReactNode
+   663→}) {
+   664→  const toneClasses =
+   665→    tone === 'amber'
+   666→      ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+   667→      : 'border-destructive/40 bg-destructive/10 text-destructive'
+   668→  return (
+   669→    <div
+   670→      className={`mb-4 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${toneClasses}`}
+   671→      role="alert"
+   672→    >
+   673→      <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+   674→      <div className="min-w-0">
+   675→        <p className="font-semibold">{title}</p>
+   676→        <p className="mt-0.5 opacity-90">{children}</p>
+   677→      </div>
+   678→    </div>
+   679→  )
+   680→}
+   681→
+   682→function StateCard({
+   683→  icon: Icon,
+   684→  title,
+   685→  description,
+   686→  onBack,
+   687→}: {
+   688→  icon: typeof SearchX
+   689→  title: string
+   690→  description: string
+   691→  onBack: () => void
+   692→}) {
+   693→  return (
+   694→    <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+   695→      <div className="flex min-h-[60vh] items-center justify-center">
+   696→        <Card className="w-full max-w-md border-dashed">
+   697→          <CardContent className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+   698→            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+   699→              <Icon className="h-8 w-8 text-muted-foreground" />
+   700→            </div>
+   701→            <p className="text-lg font-semibold">{title}</p>
+   702→            <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
+   703→            <Button variant="outline" size="sm" onClick={onBack} className="mt-2 gap-1.5">
+   704→              <ArrowLeft className="h-4 w-4" /> Back to browse
+   705→            </Button>
+   706→          </CardContent>
+   707→        </Card>
+   708→      </div>
+   709→    </div>
+   710→  )
+   711→}
+   712→
+   713→function PasteSkeleton() {
+   714→  return (
+   715→    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+   716→      <Skeleton className="mb-4 h-8 w-32" />
+   717→      <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+   718→        <div className="min-w-0 space-y-4">
+   719→          <Skeleton className="h-8 w-3/4" />
+   720→          <Skeleton className="h-4 w-full" />
+   721→          <Skeleton className="h-4 w-2/3" />
+   722→          <div className="flex gap-2">
+   723→            <Skeleton className="h-8 w-20" />
+   724→            <Skeleton className="h-8 w-20" />
+   725→            <Skeleton className="h-8 w-20" />
+   726→          </div>
+   727→          <Skeleton className="h-[600px] w-full rounded-lg" />
+   728→        </div>
+   729→        <div className="hidden lg:block">
+   730→          <Skeleton className="h-80 w-full rounded-xl" />
+   731→        </div>
+   732→      </div>
+   733→    </div>
+   734→  )
+   735→}
+   736→

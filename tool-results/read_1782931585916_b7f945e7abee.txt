@@ -1,0 +1,1186 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useMemo, useState } from 'react'
+     4→import {
+     5→  LineChart,
+     6→  Line,
+     7→  XAxis,
+     8→  YAxis,
+     9→  Tooltip,
+    10→  ResponsiveContainer,
+    11→  BarChart,
+    12→  Bar,
+    13→  CartesianGrid,
+    14→} from 'recharts'
+    15→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+    16→import { Button } from '@/components/ui/button'
+    17→import { Input } from '@/components/ui/input'
+    18→import { Label } from '@/components/ui/label'
+    19→import { Badge } from '@/components/ui/badge'
+    20→import { Switch } from '@/components/ui/switch'
+    21→import { Textarea } from '@/components/ui/textarea'
+    22→import { Skeleton } from '@/components/ui/skeleton'
+    23→import { Separator } from '@/components/ui/separator'
+    24→import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+    25→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    26→import {
+    27→  Table,
+    28→  TableBody,
+    29→  TableCell,
+    30→  TableHead,
+    31→  TableHeader,
+    32→  TableRow,
+    33→} from '@/components/ui/table'
+    34→import {
+    35→  Select,
+    36→  SelectContent,
+    37→  SelectItem,
+    38→  SelectTrigger,
+    39→  SelectValue,
+    40→} from '@/components/ui/select'
+    41→import {
+    42→  DropdownMenu,
+    43→  DropdownMenuContent,
+    44→  DropdownMenuItem,
+    45→  DropdownMenuLabel,
+    46→  DropdownMenuSeparator,
+    47→  DropdownMenuTrigger,
+    48→} from '@/components/ui/dropdown-menu'
+    49→import {
+    50→  AlertDialog,
+    51→  AlertDialogAction,
+    52→  AlertDialogCancel,
+    53→  AlertDialogContent,
+    54→  AlertDialogDescription,
+    55→  AlertDialogFooter,
+    56→  AlertDialogHeader,
+    57→  AlertDialogTitle,
+    58→} from '@/components/ui/alert-dialog'
+    59→import {
+    60→  Shield,
+    61→  ShieldAlert,
+    62→  Users as UsersIcon,
+    63→  FileText,
+    64→  HardDrive,
+    65→  Flag,
+    66→  Flame,
+    67→  Search,
+    68→  MoreHorizontal,
+    69→  CheckCircle2,
+    70→  Ban,
+    71→  Pause,
+    72→  Trash2,
+    73→  ArrowUpCircle,
+    74→  ArrowDownCircle,
+    75→  Crown,
+    76→  Loader2,
+    77→  Lock,
+    78→  Save,
+    79→  Activity,
+    80→  ChevronDown,
+    81→  ChevronRight,
+    82→} from 'lucide-react'
+    83→import { toast } from 'sonner'
+    84→import { api, ApiError } from '@/lib/api-client'
+    85→import { useAppStore } from '@/lib/store'
+    86→import { formatBytes, formatRelativeTime, formatDate, EXPIRY_OPTIONS } from '@/lib/ui-utils'
+    87→import type { SafePaste, SafeUser, SafeAuditLog } from '@/lib/types'
+    88→
+    89→type Analytics = {
+    90→  totalUsers: number
+    91→  totalPastes: number
+    92→  totalFiles: number
+    93→  totalActivePastes: number
+    94→  flaggedCount: number
+    95→  burnedCount: number
+    96→  totalViews: number
+    97→  storageUsedBytes: number
+    98→  topLanguages: { language: string; count: number }[]
+    99→  traffic: { date: string; count: number }[]
+   100→}
+   101→
+   102→type UserRow = SafeUser & { pasteCount?: number }
+   103→
+   104→const SCROLLBAR_CLASS =
+   105→  '[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30'
+   106→
+   107→export function AdminView() {
+   108→  const { user, goHome } = useAppStore()
+   109→
+   110→  if (!user || user.role !== 'admin') {
+   111→    return (
+   112→      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6">
+   113→        <Card className="max-w-md mx-auto mt-12">
+   114→          <CardHeader className="text-center">
+   115→            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+   116→              <Lock className="h-6 w-6 text-muted-foreground" />
+   117→            </div>
+   118→            <CardTitle>Admin only</CardTitle>
+   119→            <CardDescription>
+   120→              You don&apos;t have permission to access the admin panel.
+   121→            </CardDescription>
+   122→          </CardHeader>
+   123→          <CardContent className="flex justify-center">
+   124→            <Button onClick={goHome} variant="outline">
+   125→              Back to home
+   126→            </Button>
+   127→          </CardContent>
+   128→        </Card>
+   129→      </div>
+   130→    )
+   131→  }
+   132→
+   133→  return <AdminInner />
+   134→}
+   135→
+   136→function AdminInner() {
+   137→  const [tab, setTab] = useState('overview')
+   138→
+   139→  return (
+   140→    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6">
+   141→      <header className="mb-6 flex items-center gap-2">
+   142→        <Shield className="h-6 w-6 text-primary" />
+   143→        <div>
+   144→          <h1 className="text-2xl font-bold tracking-tight">Admin Panel</h1>
+   145→          <p className="text-sm text-muted-foreground">
+   146→            Manage users, content, and site settings.
+   147→          </p>
+   148→        </div>
+   149→      </header>
+   150→
+   151→      <Tabs value={tab} onValueChange={setTab} className="flex flex-col lg:flex-row gap-4">
+   152→        <TabsList className="lg:flex-col lg:h-fit lg:w-52 lg:justify-start lg:items-stretch">
+   153→          <TabsTrigger value="overview" className="justify-start gap-2">
+   154→            <Activity className="h-4 w-4" /> Overview
+   155→          </TabsTrigger>
+   156→          <TabsTrigger value="users" className="justify-start gap-2">
+   157→            <UsersIcon className="h-4 w-4" /> Users
+   158→          </TabsTrigger>
+   159→          <TabsTrigger value="content" className="justify-start gap-2">
+   160→            <FileText className="h-4 w-4" /> Content
+   161→          </TabsTrigger>
+   162→          <TabsTrigger value="settings" className="justify-start gap-2">
+   163→            <HardDrive className="h-4 w-4" /> Settings
+   164→          </TabsTrigger>
+   165→          <TabsTrigger value="audit" className="justify-start gap-2">
+   166→            <ShieldAlert className="h-4 w-4" /> Audit Log
+   167→          </TabsTrigger>
+   168→        </TabsList>
+   169→
+   170→        <div className="flex-1 min-w-0">
+   171→          <TabsContent value="overview" className="mt-0">
+   172→            <OverviewTab />
+   173→          </TabsContent>
+   174→          <TabsContent value="users" className="mt-0">
+   175→            <UsersTab />
+   176→          </TabsContent>
+   177→          <TabsContent value="content" className="mt-0">
+   178→            <ContentTab />
+   179→          </TabsContent>
+   180→          <TabsContent value="settings" className="mt-0">
+   181→            <SettingsTab />
+   182→          </TabsContent>
+   183→          <TabsContent value="audit" className="mt-0">
+   184→            <AuditTab />
+   185→          </TabsContent>
+   186→        </div>
+   187→      </Tabs>
+   188→    </div>
+   189→  )
+   190→}
+   191→
+   192→// ---------------- Overview ----------------
+   193→
+   194→function OverviewTab() {
+   195→  const [data, setData] = useState<Analytics | null>(null)
+   196→  const [loading, setLoading] = useState(true)
+   197→
+   198→  useEffect(() => {
+   199→    let active = true
+   200→    api.admin
+   201→      .analytics()
+   202→      .then((rows) => {
+   203→        if (active && rows[0]) setData(rows[0])
+   204→      })
+   205→      .catch((err) => {
+   206→        toast.error(err instanceof ApiError ? err.message : 'Failed to load analytics.')
+   207→      })
+   208→      .finally(() => {
+   209→        if (active) setLoading(false)
+   210→      })
+   211→    return () => {
+   212→      active = false
+   213→    }
+   214→  }, [])
+   215→
+   216→  if (loading || !data) {
+   217→    return (
+   218→      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+   219→        {[0, 1, 2, 3].map((i) => (
+   220→          <Skeleton key={i} className="h-28 rounded-xl" />
+   221→        ))}
+   222→        <Skeleton className="h-64 rounded-xl sm:col-span-2 lg:col-span-4" />
+   223→      </div>
+   224→    )
+   225→  }
+   226→
+   227→  const traffic = data.traffic.map((t) => ({
+   228→    ...t,
+   229→    label: new Date(t.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+   230→  }))
+   231→
+   232→  return (
+   233→    <div className="space-y-4">
+   234→      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+   235→        <KpiCard label="Total users" value={data.totalUsers.toLocaleString()} icon={<UsersIcon className="h-4 w-4" />} />
+   236→        <KpiCard label="Active pastes" value={data.totalActivePastes.toLocaleString()} icon={<FileText className="h-4 w-4" />} />
+   237→        <KpiCard label="Total files" value={data.totalFiles.toLocaleString()} icon={<HardDrive className="h-4 w-4" />} />
+   238→        <KpiCard label="Storage used" value={formatBytes(data.storageUsedBytes)} icon={<HardDrive className="h-4 w-4" />} />
+   239→      </div>
+   240→
+   241→      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+   242→        <KpiCard label="Flagged content" value={data.flaggedCount.toLocaleString()} icon={<Flag className="h-4 w-4" />} variant="warn" />
+   243→        <KpiCard label="Burned pastes" value={data.burnedCount.toLocaleString()} icon={<Flame className="h-4 w-4" />} />
+   244→        <KpiCard label="Total pastes" value={data.totalPastes.toLocaleString()} icon={<FileText className="h-4 w-4" />} />
+   245→        <KpiCard label="Total views" value={data.totalViews.toLocaleString()} icon={<Activity className="h-4 w-4" />} />
+   246→      </div>
+   247→
+   248→      <div className="grid gap-4 lg:grid-cols-3">
+   249→        <Card className="lg:col-span-2">
+   250→          <CardHeader>
+   251→            <CardTitle className="text-base">Paste creation — last 14 days</CardTitle>
+   252→            <CardDescription>Daily new pastes across the platform.</CardDescription>
+   253→          </CardHeader>
+   254→          <CardContent>
+   255→            <div className="h-64 w-full">
+   256→              <ResponsiveContainer width="100%" height="100%">
+   257→                <LineChart data={traffic} margin={{ top: 5, right: 8, bottom: 0, left: -20 }}>
+   258→                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+   259→                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+   260→                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+   261→                  <Tooltip
+   262→                    contentStyle={{
+   263→                      background: 'hsl(var(--popover))',
+   264→                      border: '1px solid hsl(var(--border))',
+   265→                      borderRadius: 8,
+   266→                      fontSize: 12,
+   267→                      color: 'hsl(var(--popover-foreground))',
+   268→                    }}
+   269→                  />
+   270→                  <Line
+   271→                    type="monotone"
+   272→                    dataKey="count"
+   273→                    stroke="hsl(var(--primary))"
+   274→                    strokeWidth={2}
+   275→                    dot={{ r: 3, fill: 'hsl(var(--primary))' }}
+   276→                    activeDot={{ r: 5 }}
+   277→                  />
+   278→                </LineChart>
+   279→              </ResponsiveContainer>
+   280→            </div>
+   281→          </CardContent>
+   282→        </Card>
+   283→
+   284→        <Card>
+   285→          <CardHeader>
+   286→            <CardTitle className="text-base">Top languages</CardTitle>
+   287→            <CardDescription>By paste count.</CardDescription>
+   288→          </CardHeader>
+   289→          <CardContent>
+   290→            {data.topLanguages.length === 0 ? (
+   291→              <p className="text-sm text-muted-foreground py-8 text-center">No data yet.</p>
+   292→            ) : (
+   293→              <div className="h-64 w-full">
+   294→                <ResponsiveContainer width="100%" height="100%">
+   295→                  <BarChart
+   296→                    data={data.topLanguages.slice(0, 10)}
+   297→                    layout="vertical"
+   298→                    margin={{ top: 0, right: 8, bottom: 0, left: 8 }}
+   299→                  >
+   300→                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+   301→                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+   302→                    <YAxis
+   303→                      type="category"
+   304→                      dataKey="language"
+   305→                      width={80}
+   306→                      tick={{ fontSize: 11 }}
+   307→                      stroke="hsl(var(--muted-foreground))"
+   308→                    />
+   309→                    <Tooltip
+   310→                      contentStyle={{
+   311→                        background: 'hsl(var(--popover))',
+   312→                        border: '1px solid hsl(var(--border))',
+   313→                        borderRadius: 8,
+   314→                        fontSize: 12,
+   315→                        color: 'hsl(var(--popover-foreground))',
+   316→                      }}
+   317→                    />
+   318→                    <Bar dataKey="count" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+   319→                  </BarChart>
+   320→                </ResponsiveContainer>
+   321→              </div>
+   322→            )}
+   323→          </CardContent>
+   324→        </Card>
+   325→      </div>
+   326→    </div>
+   327→  )
+   328→}
+   329→
+   330→function KpiCard({
+   331→  label,
+   332→  value,
+   333→  icon,
+   334→  variant = 'default',
+   335→}: {
+   336→  label: string
+   337→  value: string
+   338→  icon: React.ReactNode
+   339→  variant?: 'default' | 'warn'
+   340→}) {
+   341→  return (
+   342→    <Card>
+   343→      <CardContent className="py-4">
+   344→        <div className="flex items-center justify-between">
+   345→          <span className="text-xs text-muted-foreground">{label}</span>
+   346→          <span className={variant === 'warn' ? 'text-destructive' : 'text-muted-foreground'}>
+   347→            {icon}
+   348→          </span>
+   349→        </div>
+   350→        <p className="mt-2 text-2xl font-bold tracking-tight">{value}</p>
+   351→      </CardContent>
+   352→    </Card>
+   353→  )
+   354→}
+   355→
+   356→// ---------------- Users ----------------
+   357→
+   358→const STATUS_OPTIONS = [
+   359→  { value: 'all', label: 'All statuses' },
+   360→  { value: 'active', label: 'Active' },
+   361→  { value: 'suspended', label: 'Suspended' },
+   362→  { value: 'banned', label: 'Banned' },
+   363→  { value: 'pending_verification', label: 'Pending verification' },
+   364→]
+   365→
+   366→function UsersTab() {
+   367→  const me = useAppStore((s) => s.user)
+   368→  const [q, setQ] = useState('')
+   369→  const [status, setStatus] = useState('all')
+   370→  const [rows, setRows] = useState<UserRow[]>([])
+   371→  const [loading, setLoading] = useState(true)
+   372→  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null)
+   373→  const [deleting, setDeleting] = useState(false)
+   374→
+   375→  async function fetchUsers() {
+   376→    setLoading(true)
+   377→    try {
+   378→      const data = await api.admin.listUsers(q || undefined, status === 'all' ? undefined : status)
+   379→      setRows(data)
+   380→    } catch (err) {
+   381→      toast.error(err instanceof ApiError ? err.message : 'Failed to load users.')
+   382→    } finally {
+   383→      setLoading(false)
+   384→    }
+   385→  }
+   386→
+   387→  useEffect(() => {
+   388→    const t = setTimeout(fetchUsers, 250)
+   389→    return () => clearTimeout(t)
+   390→  }, [q, status])
+   391→
+   392→  async function update(id: string, patch: Parameters<typeof api.admin.updateUser>[1]) {
+   393→    if (me && id === me.id) {
+   394→      const risky =
+   395→        patch.status === 'banned' ||
+   396→        patch.status === 'suspended' ||
+   397→        patch.role === 'user'
+   398→      if (risky) {
+   399→        toast.error("You can't modify your own role or status.")
+   400→        return
+   401→      }
+   402→    }
+   403→    try {
+   404→      await api.admin.updateUser(id, patch)
+   405→      toast.success('User updated')
+   406→      fetchUsers()
+   407→    } catch (err) {
+   408→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+   409→    }
+   410→  }
+   411→
+   412→  async function doDelete() {
+   413→    if (!deleteTarget) return
+   414→    if (me && deleteTarget.id === me.id) {
+   415→      toast.error("You can't delete your own account from here.")
+   416→      setDeleteTarget(null)
+   417→      return
+   418→    }
+   419→    setDeleting(true)
+   420→    try {
+   421→      await api.admin.deleteUser(deleteTarget.id)
+   422→      toast.success('User deleted')
+   423→      fetchUsers()
+   424→    } catch (err) {
+   425→      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+   426→    } finally {
+   427→      setDeleting(false)
+   428→      setDeleteTarget(null)
+   429→    }
+   430→  }
+   431→
+   432→  return (
+   433→    <Card>
+   434→      <CardHeader>
+   435→        <CardTitle className="text-base">Users</CardTitle>
+   436→        <CardDescription>{rows.length} user(s) match the current filter.</CardDescription>
+   437→      </CardHeader>
+   438→      <CardContent className="space-y-4">
+   439→        <div className="flex flex-wrap gap-2">
+   440→          <div className="relative flex-1 min-w-[200px]">
+   441→            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+   442→            <Input
+   443→              placeholder="Search by name or email…"
+   444→              value={q}
+   445→              onChange={(e) => setQ(e.target.value)}
+   446→              className="pl-8"
+   447→            />
+   448→          </div>
+   449→          <Select value={status} onValueChange={setStatus}>
+   450→            <SelectTrigger className="w-[200px]">
+   451→              <SelectValue />
+   452→            </SelectTrigger>
+   453→            <SelectContent>
+   454→              {STATUS_OPTIONS.map((o) => (
+   455→                <SelectItem key={o.value} value={o.value}>
+   456→                  {o.label}
+   457→                </SelectItem>
+   458→              ))}
+   459→            </SelectContent>
+   460→          </Select>
+   461→        </div>
+   462→
+   463→        <div className={`max-h-[60vh] overflow-y-auto rounded-md border ${SCROLLBAR_CLASS}`}>
+   464→          <Table>
+   465→            <TableHeader className="sticky top-0 bg-card z-10">
+   466→              <TableRow>
+   467→                <TableHead>User</TableHead>
+   468→                <TableHead>Role</TableHead>
+   469→                <TableHead>Status</TableHead>
+   470→                <TableHead className="text-right">Pastes</TableHead>
+   471→                <TableHead>Created</TableHead>
+   472→                <TableHead className="w-10"></TableHead>
+   473→              </TableRow>
+   474→            </TableHeader>
+   475→            <TableBody>
+   476→              {loading ? (
+   477→                [0, 1, 2, 3].map((i) => (
+   478→                  <TableRow key={i}>
+   479→                    <TableCell colSpan={6}>
+   480→                      <Skeleton className="h-8 w-full" />
+   481→                    </TableCell>
+   482→                  </TableRow>
+   483→                ))
+   484→              ) : rows.length === 0 ? (
+   485→                <TableRow>
+   486→                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+   487→                    No users found.
+   488→                  </TableCell>
+   489→                </TableRow>
+   490→              ) : (
+   491→                rows.map((u) => (
+   492→                  <TableRow key={u.id}>
+   493→                    <TableCell>
+   494→                      <div className="flex items-center gap-2">
+   495→                        <Avatar className="h-7 w-7">
+   496→                          <AvatarFallback className="bg-primary/10 text-primary text-xs">
+   497→                            {(u.displayName || u.email).slice(0, 2).toUpperCase()}
+   498→                          </AvatarFallback>
+   499→                        </Avatar>
+   500→                        <div className="min-w-0">
+   501→                          <p className="text-sm font-medium truncate">
+   502→                            {u.displayName || 'Unnamed'}
+   503→                          </p>
+   504→                          <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+   505→                        </div>
+   506→                      </div>
+   507→                    </TableCell>
+   508→                    <TableCell>
+   509→                      {u.role === 'admin' ? (
+   510→                        <Badge variant="default" className="gap-1">
+   511→                          <Crown className="h-3 w-3" /> admin
+   512→                        </Badge>
+   513→                      ) : (
+   514→                        <Badge variant="outline">user</Badge>
+   515→                      )}
+   516→                    </TableCell>
+   517→                    <TableCell>
+   518→                      <StatusBadge status={u.status} />
+   519→                    </TableCell>
+   520→                    <TableCell className="text-right font-mono text-sm">
+   521→                      {u.pasteCount ?? 0}
+   522→                    </TableCell>
+   523→                    <TableCell className="text-xs text-muted-foreground">
+   524→                      {formatRelativeTime(u.createdAt)}
+   525→                    </TableCell>
+   526→                    <TableCell>
+   527→                      <DropdownMenu>
+   528→                        <DropdownMenuTrigger asChild>
+   529→                          <Button size="icon" variant="ghost" className="h-7 w-7">
+   530→                            <MoreHorizontal className="h-4 w-4" />
+   531→                          </Button>
+   532→                        </DropdownMenuTrigger>
+   533→                        <DropdownMenuContent align="end" className="w-48">
+   534→                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+   535→                          {u.status !== 'active' && (
+   536→                            <DropdownMenuItem onClick={() => update(u.id, { status: 'active', verify: true })}>
+   537→                              <CheckCircle2 className="mr-2 h-3.5 w-3.5" /> Verify / activate
+   538→                            </DropdownMenuItem>
+   539→                          )}
+   540→                          {u.status !== 'suspended' && (
+   541→                            <DropdownMenuItem onClick={() => update(u.id, { status: 'suspended' })}>
+   542→                              <Pause className="mr-2 h-3.5 w-3.5" /> Suspend
+   543→                            </DropdownMenuItem>
+   544→                          )}
+   545→                          {u.status !== 'banned' && (
+   546→                            <DropdownMenuItem onClick={() => update(u.id, { status: 'banned' })}>
+   547→                              <Ban className="mr-2 h-3.5 w-3.5" /> Ban
+   548→                            </DropdownMenuItem>
+   549→                          )}
+   550→                          <DropdownMenuSeparator />
+   551→                          {u.role !== 'admin' ? (
+   552→                            <DropdownMenuItem onClick={() => update(u.id, { role: 'admin' })}>
+   553→                              <ArrowUpCircle className="mr-2 h-3.5 w-3.5" /> Make admin
+   554→                            </DropdownMenuItem>
+   555→                          ) : (
+   556→                            <DropdownMenuItem onClick={() => update(u.id, { role: 'user' })}>
+   557→                              <ArrowDownCircle className="mr-2 h-3.5 w-3.5" /> Demote to user
+   558→                            </DropdownMenuItem>
+   559→                          )}
+   560→                          <DropdownMenuSeparator />
+   561→                          <DropdownMenuItem
+   562→                            className="text-destructive focus:text-destructive"
+   563→                            onClick={() => setDeleteTarget(u)}
+   564→                          >
+   565→                            <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+   566→                          </DropdownMenuItem>
+   567→                        </DropdownMenuContent>
+   568→                      </DropdownMenu>
+   569→                    </TableCell>
+   570→                  </TableRow>
+   571→                ))
+   572→              )}
+   573→            </TableBody>
+   574→          </Table>
+   575→        </div>
+   576→      </CardContent>
+   577→
+   578→      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+   579→        <AlertDialogContent>
+   580→          <AlertDialogHeader>
+   581→            <AlertDialogTitle>Delete user?</AlertDialogTitle>
+   582→            <AlertDialogDescription>
+   583→              &quot;{deleteTarget?.displayName || deleteTarget?.email}&quot; will be permanently
+   584→              deleted along with their data. This cannot be undone.
+   585→            </AlertDialogDescription>
+   586→          </AlertDialogHeader>
+   587→          <AlertDialogFooter>
+   588→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   589→            <AlertDialogAction
+   590→              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   591→              onClick={doDelete}
+   592→              disabled={deleting}
+   593→            >
+   594→              {deleting && <Loader2 className="h-3 w-3 animate-spin mr-1" />} Delete
+   595→            </AlertDialogAction>
+   596→          </AlertDialogFooter>
+   597→        </AlertDialogContent>
+   598→      </AlertDialog>
+   599→    </Card>
+   600→  )
+   601→}
+   602→
+   603→function StatusBadge({ status }: { status: SafeUser['status'] }) {
+   604→  const map: Record<SafeUser['status'], 'default' | 'secondary' | 'destructive' | 'outline'> = {
+   605→    active: 'default',
+   606→    pending_verification: 'outline',
+   607→    suspended: 'secondary',
+   608→    banned: 'destructive',
+   609→  }
+   610→  return <Badge variant={map[status]}>{status.replace('_', ' ')}</Badge>
+   611→}
+   612→
+   613→// ---------------- Content ----------------
+   614→
+   615→function ContentTab() {
+   616→  const [q, setQ] = useState('')
+   617→  const [flaggedOnly, setFlaggedOnly] = useState(false)
+   618→  const [expiredOnly, setExpiredOnly] = useState(false)
+   619→  const [rows, setRows] = useState<SafePaste[]>([])
+   620→  const [loading, setLoading] = useState(true)
+   621→  const [deleteTarget, setDeleteTarget] = useState<SafePaste | null>(null)
+   622→  const [deleting, setDeleting] = useState(false)
+   623→
+   624→  async function fetchPastes() {
+   625→    setLoading(true)
+   626→    try {
+   627→      const data = await api.admin.listPastes({
+   628→        q: q || undefined,
+   629→        flagged: flaggedOnly || undefined,
+   630→        expired: expiredOnly || undefined,
+   631→      })
+   632→      setRows(data)
+   633→    } catch (err) {
+   634→      toast.error(err instanceof ApiError ? err.message : 'Failed to load content.')
+   635→    } finally {
+   636→      setLoading(false)
+   637→    }
+   638→  }
+   639→
+   640→  useEffect(() => {
+   641→    const t = setTimeout(fetchPastes, 250)
+   642→    return () => clearTimeout(t)
+   643→  }, [q, flaggedOnly, expiredOnly])
+   644→
+   645→  async function update(id: string, patch: Parameters<typeof api.admin.updatePaste>[1]) {
+   646→    try {
+   647→      await api.admin.updatePaste(id, patch)
+   648→      toast.success('Paste updated')
+   649→      fetchPastes()
+   650→    } catch (err) {
+   651→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+   652→    }
+   653→  }
+   654→
+   655→  async function doDelete() {
+   656→    if (!deleteTarget) return
+   657→    setDeleting(true)
+   658→    try {
+   659→      await api.admin.deletePaste(deleteTarget.id)
+   660→      toast.success('Paste deleted')
+   661→      fetchPastes()
+   662→    } catch (err) {
+   663→      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+   664→    } finally {
+   665→      setDeleting(false)
+   666→      setDeleteTarget(null)
+   667→    }
+   668→  }
+   669→
+   670→  return (
+   671→    <Card>
+   672→      <CardHeader>
+   673→        <CardTitle className="text-base">Content moderation</CardTitle>
+   674→        <CardDescription>{rows.length} paste(s) match the current filter.</CardDescription>
+   675→      </CardHeader>
+   676→      <CardContent className="space-y-4">
+   677→        <div className="flex flex-wrap items-center gap-2">
+   678→          <div className="relative flex-1 min-w-[200px]">
+   679→            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+   680→            <Input
+   681→              placeholder="Search by title or slug…"
+   682→              value={q}
+   683→              onChange={(e) => setQ(e.target.value)}
+   684→              className="pl-8"
+   685→            />
+   686→          </div>
+   687→          <label className="flex items-center gap-2 text-sm border rounded-md px-3 py-1.5 cursor-pointer">
+   688→            <Switch checked={flaggedOnly} onCheckedChange={setFlaggedOnly} />
+   689→            <Flag className="h-3.5 w-3.5" /> Flagged only
+   690→          </label>
+   691→          <label className="flex items-center gap-2 text-sm border rounded-md px-3 py-1.5 cursor-pointer">
+   692→            <Switch checked={expiredOnly} onCheckedChange={setExpiredOnly} />
+   693→            <Flame className="h-3.5 w-3.5" /> Expired only
+   694→          </label>
+   695→        </div>
+   696→
+   697→        <div className={`max-h-[60vh] overflow-y-auto rounded-md border ${SCROLLBAR_CLASS}`}>
+   698→          <Table>
+   699→            <TableHeader className="sticky top-0 bg-card z-10">
+   700→              <TableRow>
+   701→                <TableHead>Title</TableHead>
+   702→                <TableHead>Type</TableHead>
+   703→                <TableHead>Lang</TableHead>
+   704→                <TableHead>Visibility</TableHead>
+   705→                <TableHead className="text-right">Views</TableHead>
+   706→                <TableHead>Status</TableHead>
+   707→                <TableHead>Owner</TableHead>
+   708→                <TableHead>Created</TableHead>
+   709→                <TableHead className="w-10"></TableHead>
+   710→              </TableRow>
+   711→            </TableHeader>
+   712→            <TableBody>
+   713→              {loading ? (
+   714→                [0, 1, 2, 3].map((i) => (
+   715→                  <TableRow key={i}>
+   716→                    <TableCell colSpan={9}>
+   717→                      <Skeleton className="h-8 w-full" />
+   718→                    </TableCell>
+   719→                  </TableRow>
+   720→                ))
+   721→              ) : rows.length === 0 ? (
+   722→                <TableRow>
+   723→                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+   724→                    No content found.
+   725→                  </TableCell>
+   726→                </TableRow>
+   727→              ) : (
+   728→                rows.map((p) => (
+   729→                  <TableRow key={p.id}>
+   730→                    <TableCell>
+   731→                      <div className="min-w-0 max-w-[220px]">
+   732→                        <p className="text-sm font-medium truncate">
+   733→                          {p.title || (p.contentType === 'file' ? p.originalFileName : `/${p.slug}`)}
+   734→                        </p>
+   735→                        <p className="text-xs text-muted-foreground truncate font-mono">/{p.slug}</p>
+   736→                      </div>
+   737→                    </TableCell>
+   738→                    <TableCell>
+   739→                      <Badge variant="outline" className="text-[10px]">
+   740→                        {p.contentType}
+   741→                      </Badge>
+   742→                    </TableCell>
+   743→                    <TableCell className="text-xs font-mono">{p.language}</TableCell>
+   744→                    <TableCell>
+   745→                      <Badge variant="secondary" className="text-[10px]">
+   746→                        {p.visibility}
+   747→                      </Badge>
+   748→                    </TableCell>
+   749→                    <TableCell className="text-right font-mono text-sm">{p.viewCount}</TableCell>
+   750→                    <TableCell>
+   751→                      <PasteStatusBadge paste={p} />
+   752→                    </TableCell>
+   753→                    <TableCell className="text-xs text-muted-foreground">
+   754→                      {p.ownerName || 'guest'}
+   755→                    </TableCell>
+   756→                    <TableCell className="text-xs text-muted-foreground">
+   757→                      {formatRelativeTime(p.createdAt)}
+   758→                    </TableCell>
+   759→                    <TableCell>
+   760→                      <DropdownMenu>
+   761→                        <DropdownMenuTrigger asChild>
+   762→                          <Button size="icon" variant="ghost" className="h-7 w-7">
+   763→                            <MoreHorizontal className="h-4 w-4" />
+   764→                          </Button>
+   765→                        </DropdownMenuTrigger>
+   766→                        <DropdownMenuContent align="end" className="w-52">
+   767→                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+   768→                          <DropdownMenuItem onClick={() => update(p.id, { isFlagged: !p.isFlagged })}>
+   769→                            <Flag className="mr-2 h-3.5 w-3.5" />
+   770→                            {p.isFlagged ? 'Unflag' : 'Flag'}
+   771→                          </DropdownMenuItem>
+   772→                          <DropdownMenuItem
+   773→                            onClick={() => update(p.id, { forceExpire: true })}
+   774→                            disabled={p.isExpired}
+   775→                          >
+   776→                            <Flame className="mr-2 h-3.5 w-3.5" /> Force expire
+   777→                          </DropdownMenuItem>
+   778→                          <DropdownMenuSeparator />
+   779→                          <DropdownMenuLabel>Visibility</DropdownMenuLabel>
+   780→                          {(['public', 'unlisted', 'private'] as const).map((v) => (
+   781→                            <DropdownMenuItem
+   782→                              key={v}
+   783→                              onClick={() => update(p.id, { visibility: v })}
+   784→                              disabled={p.visibility === v}
+   785→                            >
+   786→                              <span className="mr-2 capitalize">{v}</span>
+   787→                              {p.visibility === v && <CheckCircle2 className="h-3 w-3" />}
+   788→                            </DropdownMenuItem>
+   789→                          ))}
+   790→                          <DropdownMenuSeparator />
+   791→                          <DropdownMenuItem
+   792→                            className="text-destructive focus:text-destructive"
+   793→                            onClick={() => setDeleteTarget(p)}
+   794→                          >
+   795→                            <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+   796→                          </DropdownMenuItem>
+   797→                        </DropdownMenuContent>
+   798→                      </DropdownMenu>
+   799→                    </TableCell>
+   800→                  </TableRow>
+   801→                ))
+   802→              )}
+   803→            </TableBody>
+   804→          </Table>
+   805→        </div>
+   806→      </CardContent>
+   807→
+   808→      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+   809→        <AlertDialogContent>
+   810→          <AlertDialogHeader>
+   811→            <AlertDialogTitle>Delete paste?</AlertDialogTitle>
+   812→            <AlertDialogDescription>
+   813→              &quot;{deleteTarget?.title || deleteTarget?.slug}&quot; will be permanently removed.
+   814→            </AlertDialogDescription>
+   815→          </AlertDialogHeader>
+   816→          <AlertDialogFooter>
+   817→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   818→            <AlertDialogAction
+   819→              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+   820→              onClick={doDelete}
+   821→              disabled={deleting}
+   822→            >
+   823→              {deleting && <Loader2 className="h-3 w-3 animate-spin mr-1" />} Delete
+   824→            </AlertDialogAction>
+   825→          </AlertDialogFooter>
+   826→        </AlertDialogContent>
+   827→      </AlertDialog>
+   828→    </Card>
+   829→  )
+   830→}
+   831→
+   832→function PasteStatusBadge({ paste }: { paste: SafePaste }) {
+   833→  if (paste.isFlagged) return <Badge variant="destructive">flagged</Badge>
+   834→  if (paste.isBurned) return <Badge variant="secondary">burned</Badge>
+   835→  if (paste.isExpired) return <Badge variant="outline">expired</Badge>
+   836→  return <Badge variant="default">active</Badge>
+   837→}
+   838→
+   839→// ---------------- Settings ----------------
+   840→
+   841→type Settings = {
+   842→  siteName?: string
+   843→  tagline?: string
+   844→  defaultExpiry?: string
+   845→  maxFileSizeBytes?: number
+   846→  allowedFileTypes?: string
+   847→  storageDriver?: string
+   848→  guestPostingEnabled?: boolean
+   849→  sitemapEnabled?: boolean
+   850→  metaTitleTemplate?: string
+   851→  metaDescriptionTemplate?: string
+   852→  robotsTxt?: string
+   853→  [k: string]: unknown
+   854→}
+   855→
+   856→function SettingsTab() {
+   857→  const [settings, setSettings] = useState<Settings | null>(null)
+   858→  const [loading, setLoading] = useState(true)
+   859→  const [saving, setSaving] = useState(false)
+   860→
+   861→  useEffect(() => {
+   862→    let active = true
+   863→    api.admin
+   864→      .getSettings()
+   865→      .then((rows) => {
+   866→        if (active && rows[0]) setSettings(rows[0] as Settings)
+   867→      })
+   868→      .catch((err) => {
+   869→        toast.error(err instanceof ApiError ? err.message : 'Failed to load settings.')
+   870→      })
+   871→      .finally(() => {
+   872→        if (active) setLoading(false)
+   873→      })
+   874→    return () => {
+   875→      active = false
+   876→    }
+   877→  }, [])
+   878→
+   879→  async function save() {
+   880→    if (!settings) return
+   881→    setSaving(true)
+   882→    try {
+   883→      const rows = await api.admin.updateSettings(settings as Record<string, unknown>)
+   884→      if (rows[0]) setSettings(rows[0] as Settings)
+   885→      toast.success('Settings saved')
+   886→    } catch (err) {
+   887→      toast.error(err instanceof ApiError ? err.message : 'Save failed.')
+   888→    } finally {
+   889→      setSaving(false)
+   890→    }
+   891→  }
+   892→
+   893→  function set<K extends keyof Settings>(key: K, value: Settings[K]) {
+   894→    setSettings((s) => (s ? { ...s, [key]: value } : s))
+   895→  }
+   896→
+   897→  if (loading || !settings) {
+   898→    return (
+   899→      <Card>
+   900→        <CardContent className="py-6 space-y-3">
+   901→          {[0, 1, 2, 3, 4].map((i) => (
+   902→            <Skeleton key={i} className="h-10 w-full" />
+   903→          ))}
+   904→        </CardContent>
+   905→      </Card>
+   906→    )
+   907→  }
+   908→
+   909→  // maxFileSizeBytes stored as bytes; UI shows MB
+   910→  const sizeMB = settings.maxFileSizeBytes ? Math.round(settings.maxFileSizeBytes / (1024 * 1024)) : 0
+   911→
+   912→  return (
+   913→    <Card>
+   914→      <CardHeader className="flex flex-row items-start justify-between gap-2">
+   915→        <div>
+   916→          <CardTitle className="text-base">Site settings</CardTitle>
+   917→          <CardDescription>Configuration applies platform-wide.</CardDescription>
+   918→        </div>
+   919→        <Button onClick={save} disabled={saving} className="gap-1.5">
+   920→          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
+   921→        </Button>
+   922→      </CardHeader>
+   923→      <CardContent className="space-y-5">
+   924→        <div className="grid gap-4 sm:grid-cols-2">
+   925→          <Field label="Site name">
+   926→            <Input
+   927→              value={settings.siteName || ''}
+   928→              onChange={(e) => set('siteName', e.target.value)}
+   929→            />
+   930→          </Field>
+   931→          <Field label="Tagline">
+   932→            <Input
+   933→              value={settings.tagline || ''}
+   934→              onChange={(e) => set('tagline', e.target.value)}
+   935→            />
+   936→          </Field>
+   937→        </div>
+   938→
+   939→        <div className="grid gap-4 sm:grid-cols-2">
+   940→          <Field label="Default expiry">
+   941→            <Select
+   942→              value={settings.defaultExpiry || 'never'}
+   943→              onValueChange={(v) => set('defaultExpiry', v)}
+   944→            >
+   945→              <SelectTrigger className="w-full">
+   946→                <SelectValue />
+   947→              </SelectTrigger>
+   948→              <SelectContent>
+   949→                {EXPIRY_OPTIONS.map((o) => (
+   950→                  <SelectItem key={o.value} value={o.value}>
+   951→                    {o.label}
+   952→                  </SelectItem>
+   953→                ))}
+   954→              </SelectContent>
+   955→            </Select>
+   956→          </Field>
+   957→          <Field label="Max file size (MB)">
+   958→            <Input
+   959→              type="number"
+   960→              min={1}
+   961→              value={sizeMB}
+   962→              onChange={(e) => set('maxFileSizeBytes', Math.max(0, Number(e.target.value)) * 1024 * 1024)}
+   963→            />
+   964→          </Field>
+   965→        </div>
+   966→
+   967→        <div className="grid gap-4 sm:grid-cols-2">
+   968→          <Field label="Allowed file types (comma-separated extensions)">
+   969→            <Input
+   970→              value={settings.allowedFileTypes || ''}
+   971→              onChange={(e) => set('allowedFileTypes', e.target.value)}
+   972→              placeholder=".png, .jpg, .pdf"
+   973→            />
+   974→          </Field>
+   975→          <Field label="Storage driver">
+   976→            <Select
+   977→              value={settings.storageDriver || 'local'}
+   978→              onValueChange={(v) => set('storageDriver', v)}
+   979→            >
+   980→              <SelectTrigger className="w-full">
+   981→                <SelectValue />
+   982→              </SelectTrigger>
+   983→              <SelectContent>
+   984→                <SelectItem value="local">Local filesystem</SelectItem>
+   985→                <SelectItem value="s3">S3-compatible</SelectItem>
+   986→              </SelectContent>
+   987→            </Select>
+   988→          </Field>
+   989→        </div>
+   990→
+   991→        <div className="grid gap-4 sm:grid-cols-2">
+   992→          <ToggleRow
+   993→            label="Guest posting enabled"
+   994→            description="Allow non-logged-in users to create pastes."
+   995→            checked={!!settings.guestPostingEnabled}
+   996→            onCheckedChange={(v) => set('guestPostingEnabled', v)}
+   997→          />
+   998→          <ToggleRow
+   999→            label="Sitemap enabled"
+  1000→            description="Generate /sitemap.xml for public pastes."
+  1001→            checked={!!settings.sitemapEnabled}
+  1002→            onCheckedChange={(v) => set('sitemapEnabled', v)}
+  1003→          />
+  1004→        </div>
+  1005→
+  1006→        <Separator />
+  1007→
+  1008→        <Field label="Meta title template">
+  1009→          <Input
+  1010→            value={settings.metaTitleTemplate || ''}
+  1011→            onChange={(e) => set('metaTitleTemplate', e.target.value)}
+  1012→            placeholder="%s · PasteShare"
+  1013→          />
+  1014→        </Field>
+  1015→        <Field label="Meta description template">
+  1016→          <Textarea
+  1017→            rows={2}
+  1018→            value={settings.metaDescriptionTemplate || ''}
+  1019→            onChange={(e) => set('metaDescriptionTemplate', e.target.value)}
+  1020→          />
+  1021→        </Field>
+  1022→        <Field label="robots.txt">
+  1023→          <Textarea
+  1024→            rows={5}
+  1025→            value={settings.robotsTxt || ''}
+  1026→            onChange={(e) => set('robotsTxt', e.target.value)}
+  1027→            className="font-mono text-xs"
+  1028→          />
+  1029→        </Field>
+  1030→      </CardContent>
+  1031→    </Card>
+  1032→  )
+  1033→}
+  1034→
+  1035→function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  1036→  return (
+  1037→    <div className="space-y-1.5">
+  1038→      <Label className="text-xs">{label}</Label>
+  1039→      {children}
+  1040→    </div>
+  1041→  )
+  1042→}
+  1043→
+  1044→function ToggleRow({
+  1045→  label,
+  1046→  description,
+  1047→  checked,
+  1048→  onCheckedChange,
+  1049→}: {
+  1050→  label: string
+  1051→  description: string
+  1052→  checked: boolean
+  1053→  onCheckedChange: (v: boolean) => void
+  1054→}) {
+  1055→  return (
+  1056→    <div className="flex items-start justify-between gap-3 rounded-md border p-3">
+  1057→      <div>
+  1058→        <p className="text-sm font-medium">{label}</p>
+  1059→        <p className="text-xs text-muted-foreground">{description}</p>
+  1060→      </div>
+  1061→      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+  1062→    </div>
+  1063→  )
+  1064→}
+  1065→
+  1066→// ---------------- Audit ----------------
+  1067→
+  1068→function AuditTab() {
+  1069→  const [rows, setRows] = useState<SafeAuditLog[]>([])
+  1070→  const [loading, setLoading] = useState(true)
+  1071→  const [expanded, setExpanded] = useState<string | null>(null)
+  1072→
+  1073→  useEffect(() => {
+  1074→    let active = true
+  1075→    api.admin
+  1076→      .listAudit(100)
+  1077→      .then((data) => {
+  1078→        if (active) setRows(data)
+  1079→      })
+  1080→      .catch((err) => {
+  1081→        toast.error(err instanceof ApiError ? err.message : 'Failed to load audit log.')
+  1082→      })
+  1083→      .finally(() => {
+  1084→        if (active) setLoading(false)
+  1085→      })
+  1086→    return () => {
+  1087→      active = false
+  1088→    }
+  1089→  }, [])
+  1090→
+  1091→  return (
+  1092→    <Card>
+  1093→      <CardHeader>
+  1094→        <CardTitle className="text-base">Audit log</CardTitle>
+  1095→        <CardDescription>Last {rows.length} admin actions.</CardDescription>
+  1096→      </CardHeader>
+  1097→      <CardContent>
+  1098→        <div className={`max-h-[60vh] overflow-y-auto rounded-md border ${SCROLLBAR_CLASS}`}>
+  1099→          <Table>
+  1100→            <TableHeader className="sticky top-0 bg-card z-10">
+  1101→              <TableRow>
+  1102→                <TableHead>Time</TableHead>
+  1103→                <TableHead>Admin</TableHead>
+  1104→                <TableHead>Action</TableHead>
+  1105→                <TableHead>Target</TableHead>
+  1106→                <TableHead>Target ID</TableHead>
+  1107→                <TableHead>Metadata</TableHead>
+  1108→              </TableRow>
+  1109→            </TableHeader>
+  1110→            <TableBody>
+  1111→              {loading ? (
+  1112→                [0, 1, 2, 3].map((i) => (
+  1113→                  <TableRow key={i}>
+  1114→                    <TableCell colSpan={6}>
+  1115→                      <Skeleton className="h-8 w-full" />
+  1116→                    </TableCell>
+  1117→                  </TableRow>
+  1118→                ))
+  1119→              ) : rows.length === 0 ? (
+  1120→                <TableRow>
+  1121→                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+  1122→                    No audit entries yet.
+  1123→                  </TableCell>
+  1124→                </TableRow>
+  1125→              ) : (
+  1126→                rows.map((a) => {
+  1127→                  const isOpen = expanded === a.id
+  1128→                  let metaStr: string
+  1129→                  try {
+  1130→                    metaStr = JSON.stringify(a.metadata, null, 2)
+  1131→                  } catch {
+  1132→                    metaStr = String(a.metadata)
+  1133→                  }
+  1134→                  return (
+  1135→                    <TableRow key={a.id}>
+  1136→                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+  1137→                        {formatDate(a.createdAt)}
+  1138→                      </TableCell>
+  1139→                      <TableCell className="text-xs">{a.adminEmail || '—'}</TableCell>
+  1140→                      <TableCell>
+  1141→                        <Badge variant="outline" className="text-[10px] font-mono">
+  1142→                          {a.action}
+  1143→                        </Badge>
+  1144→                      </TableCell>
+  1145→                      <TableCell className="text-xs">{a.targetType}</TableCell>
+  1146→                      <TableCell className="text-xs font-mono text-muted-foreground">
+  1147→                        {a.targetId ? a.targetId.slice(0, 8) : '—'}
+  1148→                      </TableCell>
+  1149→                      <TableCell className="max-w-[280px]">
+  1150→                        {metaStr && metaStr !== '{}' && metaStr !== 'null' ? (
+  1151→                          <div>
+  1152→                            <button
+  1153→                              onClick={() => setExpanded(isOpen ? null : a.id)}
+  1154→                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+  1155→                            >
+  1156→                              {isOpen ? (
+  1157→                                <ChevronDown className="h-3 w-3" />
+  1158→                              ) : (
+  1159→                                <ChevronRight className="h-3 w-3" />
+  1160→                              )}
+  1161→                              <span className="truncate font-mono">
+  1162→                                {isOpen ? '' : metaStr.slice(0, 60)}
+  1163→                              </span>
+  1164→                            </button>
+  1165→                            {isOpen && (
+  1166→                              <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted/40 p-2 text-[10px] font-mono whitespace-pre-wrap break-all">
+  1167→                                {metaStr}
+  1168→                              </pre>
+  1169→                            )}
+  1170→                          </div>
+  1171→                        ) : (
+  1172→                          <span className="text-xs text-muted-foreground">—</span>
+  1173→                        )}
+  1174→                      </TableCell>
+  1175→                    </TableRow>
+  1176→                  )
+  1177→                })
+  1178→              )}
+  1179→            </TableBody>
+  1180→          </Table>
+  1181→        </div>
+  1182→      </CardContent>
+  1183→    </Card>
+  1184→  )
+  1185→}
+  1186→
