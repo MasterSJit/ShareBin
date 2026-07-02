@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
@@ -33,17 +33,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { CodeEditor } from '@/components/editor/code-editor'
 import { PasteCard } from '@/components/paste-card'
+import { Reveal, StaggerGroup, fadeUp } from '@/components/motion-helpers'
 import {
-  Reveal,
-  StaggerGroup,
-  fadeUp,
-} from '@/components/motion-helpers'
+  useGsapHeroEntrance,
+  useGsapMagnetic,
+  SplitText,
+} from '@/components/gsap-helpers'
 import { api, ApiError } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
 import { LANGUAGES, EXPIRY_OPTIONS, formatBytes } from '@/lib/ui-utils'
 import type { SafePaste, SafeUser } from '@/lib/types'
 
-const MAX_FILE_BYTES = 25 * 1024 * 1024 // 25 MB cap (mirrors server enforcement)
+const MAX_FILE_BYTES = 25 * 1024 * 1024
 
 const VISIBILITY_OPTIONS: {
   value: 'public' | 'unlisted' | 'private'
@@ -55,17 +56,14 @@ const VISIBILITY_OPTIONS: {
   { value: 'private', label: 'Private', icon: Lock },
 ]
 
-// Deduped language list — "Auto-detect" (plaintext) first.
 const LANGUAGE_OPTIONS: { value: string; label: string }[] = (() => {
-  const seen = new Set<string>(['plaintext'])
-  const out: { value: string; label: string }[] = [
-    { value: 'plaintext', label: 'Auto-detect' },
-  ]
+  const seen = new Set<string>()
+  const out: { value: string; label: string }[] = []
   for (const l of LANGUAGES) {
-    if (!seen.has(l.value)) {
-      out.push(l)
-      seen.add(l.value)
-    }
+    const key = `${l.value}-${l.label}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(l)
   }
   return out
 })()
@@ -75,9 +73,6 @@ const FEATURE_CHIPS = ['45+ languages', 'burn-after-read', 'password-protected']
 const SECTION_LABEL_CLS =
   'font-mono text-[11px] uppercase tracking-wider text-muted-foreground'
 
-const BORDERLESS_INPUT_CLS =
-  'border-0 border-b border-border rounded-none px-0 text-sm focus-visible:border-brand focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50 h-auto py-2 shadow-none'
-
 const TAB_TRIGGER_CLS =
   'rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2 pt-1 text-muted-foreground shadow-none hover:text-foreground data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none'
 
@@ -86,6 +81,9 @@ export function HomeView() {
   const goView = useAppStore((s) => s.goView)
   const goBrowse = useAppStore((s) => s.goBrowse)
   const goLogin = useAppStore((s) => s.goLogin)
+
+  // GSAP hero entrance
+  const heroRef = useGsapHeroEntrance<HTMLDivElement>()
 
   // --- shared form state ---
   const [tab, setTab] = useState<'text' | 'file'>('text')
@@ -116,14 +114,12 @@ export function HomeView() {
   const [recent, setRecent] = useState<SafePaste[]>([])
   const [loadingRecent, setLoadingRecent] = useState(true)
 
-  // Demote private → public if the user logs out while private is selected.
   useEffect(() => {
     if (user === null && visibility === 'private') {
       setVisibility('public')
     }
   }, [user, visibility])
 
-  // Fetch recent public pastes on mount
   useEffect(() => {
     let active = true
     setLoadingRecent(true)
@@ -267,17 +263,29 @@ export function HomeView() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-12">
       {/* ----------------------------------------------------------- */}
-      {/* Hero — editorial, left-aligned                              */}
+      {/* Hero — GSAP char-split entrance                              */}
       {/* ----------------------------------------------------------- */}
-      <Reveal>
+      <div ref={heroRef}>
         <section className="space-y-4">
-          <span className="font-mono text-xs text-brand">
+          <span
+            data-hero="eyebrow"
+            className="inline-block font-mono text-xs text-brand"
+          >
             {'>'} new_paste.sh
           </span>
-          <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
-            Share code, <span className="text-gradient">beautifully.</span>
+          <h1
+            data-hero="title"
+            className="text-4xl font-semibold tracking-tight md:text-5xl"
+          >
+            <SplitText text="Share code, " />
+            <span data-hero="gradient" className="text-gradient">
+              beautifully.
+            </span>
           </h1>
-          <p className="max-w-2xl text-base text-muted-foreground">
+          <p
+            data-hero="subtitle"
+            className="max-w-2xl text-base text-muted-foreground"
+          >
             Monaco-grade syntax highlighting. Burn-after-read. Password
             protection. Zero friction.
           </p>
@@ -285,6 +293,7 @@ export function HomeView() {
             {FEATURE_CHIPS.map((label) => (
               <span
                 key={label}
+                data-hero="chip"
                 className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
               >
                 <span className="brand-dot" aria-hidden />
@@ -293,234 +302,37 @@ export function HomeView() {
             ))}
           </div>
         </section>
-      </Reveal>
+      </div>
 
       {/* ----------------------------------------------------------- */}
-      {/* Create panel — surface card w/ terminal-strip window chrome  */}
+      {/* Create panel — NOT wrapped in Reveal (Monaco needs clean    */}
+      {/* stacking context). Use a simple fade-in via GSAP instead.    */}
       {/* ----------------------------------------------------------- */}
-      <Reveal delay={0.1} className="mt-8">
-        <div className="surface overflow-hidden rounded-2xl">
-          {/* Window chrome */}
-          <div className="terminal-strip flex h-10 items-center gap-2 px-4">
-            <div className="flex gap-1.5">
-              <div className="h-3 w-3 rounded-full bg-rose-500" aria-hidden />
-              <div className="h-3 w-3 rounded-full bg-amber-500" aria-hidden />
-              <div className="h-3 w-3 rounded-full bg-brand" aria-hidden />
-            </div>
-            <span className="ml-2 font-mono text-xs text-muted-foreground">
-              pasteshare — new
-            </span>
-          </div>
-
-          {/* Body */}
-          <div className="p-5 md:p-6">
-            <Tabs value={tab} onValueChange={(v) => setTab(v as 'text' | 'file')}>
-              <TabsList className="h-auto gap-5 bg-transparent p-0">
-                <TabsTrigger value="text" className={TAB_TRIGGER_CLS}>
-                  <FileCode className="h-3.5 w-3.5" /> Text
-                </TabsTrigger>
-                <TabsTrigger value="file" className={TAB_TRIGGER_CLS}>
-                  <Upload className="h-3.5 w-3.5" /> File
-                </TabsTrigger>
-              </TabsList>
-
-              {/* ----------------------- TEXT TAB ----------------------- */}
-              <TabsContent value="text" className="mt-5 outline-none">
-                <div className="grid gap-5 lg:grid-cols-3">
-                  {/* Main / left column */}
-                  <div className="space-y-3 lg:col-span-2">
-                    <Input
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      placeholder="Untitled paste…"
-                      className={`${BORDERLESS_INPUT_CLS} text-xl font-medium`}
-                      aria-label="Paste title"
-                    />
-                    <Input
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Short description…"
-                      className={BORDERLESS_INPUT_CLS}
-                      aria-label="Paste description"
-                    />
-                    <div className="relative">
-                      <Tag className="pointer-events-none absolute left-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        value={tags}
-                        onChange={(e) => setTags(e.target.value)}
-                        placeholder="comma, separated, tags"
-                        className={`${BORDERLESS_INPUT_CLS} pl-5`}
-                        aria-label="Paste tags"
-                      />
-                    </div>
-
-                    {/* Monaco editor container */}
-                    <div className="mt-4 overflow-hidden rounded-lg border border-border bg-surface-2">
-                      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {language}
-                        </span>
-                        <span className="font-mono text-[10px] uppercase tracking-wider text-brand">
-                          read-write
-                        </span>
-                      </div>
-                      <div className="min-h-[420px]">
-                        <CodeEditor
-                          value={textContent}
-                          onChange={(v) => setTextContent(v ?? '')}
-                          language={language}
-                          height="100%"
-                          wordWrap
-                          showLineNumbers
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Sidebar */}
-                  <div className="lg:col-span-1">
-                    <SidebarCard
-                      {...sidebarProps}
-                      language={language}
-                      setLanguage={setLanguage}
-                      submitLabel="Create paste"
-                      onSubmit={handleCreateText}
-                      submitDisabled={!textContent.trim()}
-                      submitIcon={<Plus className="h-4 w-4" />}
-                    />
-                  </div>
-                </div>
-              </TabsContent>
-
-              {/* ----------------------- FILE TAB ----------------------- */}
-              <TabsContent value="file" className="mt-5 outline-none">
-                <div className="grid gap-5 lg:grid-cols-3">
-                  {/* Main / left column */}
-                  <div className="space-y-3 lg:col-span-2">
-                    <Input
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      placeholder="File title (optional)…"
-                      className={`${BORDERLESS_INPUT_CLS} text-xl font-medium`}
-                      aria-label="File title"
-                    />
-                    <Input
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Short description…"
-                      className={BORDERLESS_INPUT_CLS}
-                      aria-label="File description"
-                    />
-                    <div className="relative">
-                      <Tag className="pointer-events-none absolute left-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        value={tags}
-                        onChange={(e) => setTags(e.target.value)}
-                        placeholder="comma, separated, tags"
-                        className={`${BORDERLESS_INPUT_CLS} pl-5`}
-                        aria-label="File tags"
-                      />
-                    </div>
-
-                    {/* Dropzone */}
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => fileInputRef.current?.click()}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          fileInputRef.current?.click()
-                        }
-                      }}
-                      onDrop={onDrop}
-                      onDragOver={(e) => {
-                        e.preventDefault()
-                        setDragOver(true)
-                      }}
-                      onDragLeave={() => setDragOver(false)}
-                      aria-label="File dropzone — click to browse"
-                      className={[
-                        'mt-4 flex min-h-[280px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-6 text-center transition-colors',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                        dragOver
-                          ? 'border-brand bg-brand/5'
-                          : 'border-border bg-surface-2/50 hover:border-brand hover:bg-brand/5',
-                      ].join(' ')}
-                    >
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        className="hidden"
-                        onChange={(e) => handleFileSelected(e.target.files?.[0])}
-                      />
-                      {file ? (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.96 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex w-full max-w-md items-center gap-4 rounded-lg border border-border bg-surface p-4"
-                        >
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-brand/15 text-brand">
-                            <FileText className="h-5 w-5" />
-                          </div>
-                          <div className="min-w-0 flex-1 text-left">
-                            <p className="truncate text-sm font-medium">
-                              {file.name}
-                            </p>
-                            <p className="font-mono text-[11px] text-muted-foreground">
-                              {formatBytes(file.size)} · {file.type || 'unknown'}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              clearFile()
-                            }}
-                            aria-label="Remove file"
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        </motion.div>
-                      ) : (
-                        <>
-                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-3 text-muted-foreground">
-                            <Upload className="h-5 w-5" />
-                          </div>
-                          <div className="space-y-1">
-                            <p className="text-sm font-medium">Drop a file here</p>
-                            <p className="text-xs text-muted-foreground">
-                              or click to browse
-                            </p>
-                          </div>
-                          <p className="font-mono text-[10px] text-muted-foreground">
-                            Max {formatBytes(MAX_FILE_BYTES)}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Sidebar */}
-                  <div className="lg:col-span-1">
-                    <SidebarCard
-                      {...sidebarProps}
-                      hideLanguage
-                      submitLabel="Upload file"
-                      onSubmit={handleUploadFile}
-                      submitDisabled={!file}
-                      submitIcon={<Upload className="h-4 w-4" />}
-                    />
-                  </div>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </div>
-        </div>
-      </Reveal>
+      <CreatePanel
+        tab={tab}
+        setTab={setTab}
+        title={title}
+        setTitle={setTitle}
+        description={description}
+        setDescription={setDescription}
+        tags={tags}
+        setTags={setTags}
+        textContent={textContent}
+        setTextContent={setTextContent}
+        language={language}
+        setLanguage={setLanguage}
+        file={file}
+        setFile={setFile}
+        dragOver={dragOver}
+        setDragOver={setDragOver}
+        fileInputRef={fileInputRef}
+        handleFileSelected={handleFileSelected}
+        onDrop={onDrop}
+        clearFile={clearFile}
+        sidebarProps={sidebarProps}
+        handleCreateText={handleCreateText}
+        handleUploadFile={handleUploadFile}
+      />
 
       {/* ----------------------------------------------------------- */}
       {/* Recent public pastes                                        */}
@@ -530,6 +342,359 @@ export function HomeView() {
         loading={loadingRecent}
         onBrowse={goBrowse}
       />
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Create panel — isolated so Monaco has a clean stacking context     */
+/* ------------------------------------------------------------------ */
+
+function CreatePanel(props: {
+  tab: 'text' | 'file'
+  setTab: (v: 'text' | 'file') => void
+  title: string
+  setTitle: (v: string) => void
+  description: string
+  setDescription: (v: string) => void
+  tags: string
+  setTags: (v: string) => void
+  textContent: string
+  setTextContent: (v: string) => void
+  language: string
+  setLanguage: (v: string) => void
+  file: File | null
+  setFile: (v: File | null) => void
+  dragOver: boolean
+  setDragOver: (v: boolean) => void
+  fileInputRef: React.RefObject<HTMLInputElement | null>
+  handleFileSelected: (f: File | null | undefined) => void
+  onDrop: (e: React.DragEvent<HTMLDivElement>) => void
+  clearFile: () => void
+  sidebarProps: Record<string, unknown>
+  handleCreateText: () => void
+  handleUploadFile: () => void
+}) {
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // GSAP entrance for the panel (no filter/transform persisted)
+  useLayoutEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    const ctx = (async () => {
+      const { gsap } = await import('gsap')
+      gsap.fromTo(
+        el,
+        { y: 20, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.6, ease: 'power3.out', delay: 0.3 },
+      )
+    })()
+    return () => {
+      ctx.catch(() => {})
+    }
+  }, [])
+
+  const {
+    tab,
+    setTab,
+    title,
+    setTitle,
+    description,
+    setDescription,
+    tags,
+    setTags,
+    textContent,
+    setTextContent,
+    language,
+    setLanguage,
+    file,
+    dragOver,
+    setDragOver,
+    fileInputRef,
+    handleFileSelected,
+    onDrop,
+    clearFile,
+    sidebarProps,
+    handleCreateText,
+    handleUploadFile,
+  } = props
+
+  return (
+    <div ref={panelRef} className="mt-8">
+      <div className="surface overflow-hidden rounded-2xl">
+        {/* Window chrome */}
+        <div className="terminal-strip flex h-10 items-center gap-2 px-4">
+          <div className="flex gap-1.5">
+            <div className="h-3 w-3 rounded-full bg-rose-500" aria-hidden />
+            <div className="h-3 w-3 rounded-full bg-amber-500" aria-hidden />
+            <div className="h-3 w-3 rounded-full bg-brand" aria-hidden />
+          </div>
+          <span className="ml-2 font-mono text-xs text-muted-foreground">
+            pasteshare — new
+          </span>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 md:p-6">
+          <Tabs value={tab} onValueChange={(v) => setTab(v as 'text' | 'file')}>
+            <TabsList className="h-auto gap-5 bg-transparent p-0">
+              <TabsTrigger value="text" className={TAB_TRIGGER_CLS}>
+                <FileCode className="h-3.5 w-3.5" /> Text
+              </TabsTrigger>
+              <TabsTrigger value="file" className={TAB_TRIGGER_CLS}>
+                <Upload className="h-3.5 w-3.5" /> File
+              </TabsTrigger>
+            </TabsList>
+
+            {/* ----------------------- TEXT TAB ----------------------- */}
+            <TabsContent value="text" className="mt-5 outline-none">
+              <div className="grid gap-5 lg:grid-cols-3">
+                {/* Main / left column */}
+                <div className="space-y-3 lg:col-span-2">
+                  {/* Modern field: Title */}
+                  <div className="field">
+                    <input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder=" "
+                      aria-label="Paste title"
+                      className="field-input text-base font-medium"
+                      id="paste-title"
+                    />
+                    <label
+                      htmlFor="paste-title"
+                      className="field-float-label"
+                    >
+                      Title
+                    </label>
+                    <div className="field-bar" />
+                  </div>
+
+                  {/* Modern field: Description */}
+                  <div className="field">
+                    <input
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder=" "
+                      aria-label="Paste description"
+                      className="field-input"
+                      id="paste-desc"
+                    />
+                    <label
+                      htmlFor="paste-desc"
+                      className="field-float-label"
+                    >
+                      Description
+                    </label>
+                    <div className="field-bar" />
+                  </div>
+
+                  {/* Modern field: Tags */}
+                  <div className="field">
+                    <Tag className="pointer-events-none absolute left-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={tags}
+                      onChange={(e) => setTags(e.target.value)}
+                      placeholder=" "
+                      aria-label="Paste tags"
+                      className="field-input pl-9"
+                      id="paste-tags"
+                    />
+                    <label
+                      htmlFor="paste-tags"
+                      className="field-float-label"
+                      style={{ left: '2.25rem' }}
+                    >
+                      Tags
+                    </label>
+                    <div className="field-bar" />
+                  </div>
+
+                  {/* Monaco editor container — NO animation wrapper */}
+                  <div className="mt-4 overflow-hidden rounded-lg border border-border bg-surface-2">
+                    <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {language}
+                      </span>
+                      <span className="font-mono text-[10px] uppercase tracking-wider text-brand">
+                        read-write
+                      </span>
+                    </div>
+                    <div className="min-h-[420px]">
+                      <CodeEditor
+                        value={textContent}
+                        onChange={(v) => setTextContent(v ?? '')}
+                        language={language}
+                        height="100%"
+                        wordWrap
+                        showLineNumbers
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sidebar */}
+                <div className="lg:col-span-1">
+                  <SidebarCard
+                    {...sidebarProps}
+                    language={language}
+                    setLanguage={setLanguage}
+                    submitLabel="Create paste"
+                    onSubmit={handleCreateText}
+                    submitDisabled={!textContent.trim()}
+                    submitIcon={<Plus className="h-4 w-4" />}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* ----------------------- FILE TAB ----------------------- */}
+            <TabsContent value="file" className="mt-5 outline-none">
+              <div className="grid gap-5 lg:grid-cols-3">
+                {/* Main / left column */}
+                <div className="space-y-3 lg:col-span-2">
+                  <div className="field">
+                    <input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder=" "
+                      aria-label="File title"
+                      className="field-input text-base font-medium"
+                      id="file-title"
+                    />
+                    <label htmlFor="file-title" className="field-float-label">
+                      File title
+                    </label>
+                    <div className="field-bar" />
+                  </div>
+                  <div className="field">
+                    <input
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder=" "
+                      aria-label="File description"
+                      className="field-input"
+                      id="file-desc"
+                    />
+                    <label htmlFor="file-desc" className="field-float-label">
+                      Description
+                    </label>
+                    <div className="field-bar" />
+                  </div>
+                  <div className="field">
+                    <Tag className="pointer-events-none absolute left-3 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={tags}
+                      onChange={(e) => setTags(e.target.value)}
+                      placeholder=" "
+                      aria-label="File tags"
+                      className="field-input pl-9"
+                      id="file-tags"
+                    />
+                    <label
+                      htmlFor="file-tags"
+                      className="field-float-label"
+                      style={{ left: '2.25rem' }}
+                    >
+                      Tags
+                    </label>
+                    <div className="field-bar" />
+                  </div>
+
+                  {/* Dropzone */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => fileInputRef.current?.click()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        fileInputRef.current?.click()
+                      }
+                    }}
+                    onDrop={onDrop}
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      setDragOver(true)
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    aria-label="File dropzone — click to browse"
+                    className={[
+                      'mt-4 flex min-h-[280px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-6 text-center transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                      dragOver
+                        ? 'border-brand bg-brand/5'
+                        : 'border-border bg-surface-2/50 hover:border-brand hover:bg-brand/5',
+                    ].join(' ')}
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      onChange={(e) => handleFileSelected(e.target.files?.[0])}
+                    />
+                    {file ? (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.96 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.3 }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex w-full max-w-md items-center gap-4 rounded-lg border border-border bg-surface p-4"
+                      >
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-brand/15 text-brand">
+                          <FileText className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 flex-1 text-left">
+                          <p className="truncate text-sm font-medium">{file.name}</p>
+                          <p className="font-mono text-[11px] text-muted-foreground">
+                            {formatBytes(file.size)} · {file.type || 'unknown'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            clearFile()
+                          }}
+                          aria-label="Remove file"
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </motion.div>
+                    ) : (
+                      <>
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-3 text-muted-foreground">
+                          <Upload className="h-5 w-5" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Drop a file here</p>
+                          <p className="text-xs text-muted-foreground">or click to browse</p>
+                        </div>
+                        <p className="font-mono text-[10px] text-muted-foreground">
+                          Max {formatBytes(MAX_FILE_BYTES)}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Sidebar */}
+                <div className="lg:col-span-1">
+                  <SidebarCard
+                    {...sidebarProps}
+                    hideLanguage
+                    submitLabel="Upload file"
+                    onSubmit={handleUploadFile}
+                    submitDisabled={!file}
+                    submitIcon={<Upload className="h-4 w-4" />}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
     </div>
   )
 }
@@ -589,6 +754,9 @@ function SidebarCard(props: SidebarCardProps) {
     onLogin,
   } = props
 
+  // Magnetic button effect
+  const btnRef = useGsapMagnetic<HTMLButtonElement>(0.25)
+
   return (
     <div className="surface-2 space-y-4 rounded-xl p-4">
       {/* Language */}
@@ -625,16 +793,16 @@ function SidebarCard(props: SidebarCardProps) {
                 onClick={() => !disabled && setVisibility(opt.value)}
                 aria-pressed={selected}
                 className={[
-                  'flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                  'flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm transition-all',
                   selected
                     ? 'border-brand bg-brand/5 text-foreground'
-                    : 'border-border text-muted-foreground hover:text-foreground',
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-border/60',
                   disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
                 ].join(' ')}
               >
                 <opt.icon
                   className={[
-                    'h-3.5 w-3.5',
+                    'h-3.5 w-3.5 transition-colors',
                     selected ? 'text-brand' : 'text-muted-foreground',
                   ].join(' ')}
                 />
@@ -668,14 +836,21 @@ function SidebarCard(props: SidebarCardProps) {
           />
         </div>
         {passwordEnabled && (
-          <Input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="bg-surface-3"
-            autoComplete="new-password"
-          />
+          <div className="field">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder=" "
+              className="field-input"
+              id="paste-password"
+              autoComplete="new-password"
+            />
+            <label htmlFor="paste-password" className="field-float-label">
+              Password
+            </label>
+            <div className="field-bar" />
+          </div>
         )}
       </div>
 
@@ -686,8 +861,7 @@ function SidebarCard(props: SidebarCardProps) {
             htmlFor="burn-switch"
             className="flex items-center gap-1.5 text-sm font-medium"
           >
-            <Flame className="h-3.5 w-3.5 text-muted-foreground" /> Burn after
-            read
+            <Flame className="h-3.5 w-3.5 text-muted-foreground" /> Burn after read
           </Label>
           <Switch
             id="burn-switch"
@@ -697,9 +871,7 @@ function SidebarCard(props: SidebarCardProps) {
             className="data-[state=checked]:bg-brand-2"
           />
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          Deleted after first view
-        </p>
+        <p className="text-[11px] text-muted-foreground">Deleted after first view</p>
       </div>
 
       {/* Expiry */}
@@ -733,19 +905,16 @@ function SidebarCard(props: SidebarCardProps) {
         )}
       </div>
 
-      {/* Submit */}
+      {/* Submit — magnetic button */}
       <Button
+        ref={btnRef}
         type="button"
         onClick={onSubmit}
         disabled={submitDisabled || submitting}
         className="btn-shine relative w-full gap-1.5 overflow-hidden rounded-md bg-brand text-brand-foreground font-medium hover:bg-brand/90"
         size="lg"
       >
-        {submitting ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          submitIcon
-        )}
+        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : submitIcon}
         {submitLabel}
       </Button>
 

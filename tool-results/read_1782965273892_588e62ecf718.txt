@@ -1,0 +1,831 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useRef, useState } from 'react'
+     4→import { motion } from 'framer-motion'
+     5→import { toast } from 'sonner'
+     6→import {
+     7→  ArrowRight,
+     8→  FileCode,
+     9→  FileText,
+    10→  Flame,
+    11→  Globe,
+    12→  Link as Link2,
+    13→  Lock,
+    14→  Loader2,
+    15→  Plus,
+    16→  Tag,
+    17→  Upload,
+    18→  X,
+    19→} from 'lucide-react'
+    20→
+    21→import { Button } from '@/components/ui/button'
+    22→import { Input } from '@/components/ui/input'
+    23→import { Label } from '@/components/ui/label'
+    24→import {
+    25→  Select,
+    26→  SelectContent,
+    27→  SelectItem,
+    28→  SelectTrigger,
+    29→  SelectValue,
+    30→} from '@/components/ui/select'
+    31→import { Switch } from '@/components/ui/switch'
+    32→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    33→
+    34→import { CodeEditor } from '@/components/editor/code-editor'
+    35→import { PasteCard } from '@/components/paste-card'
+    36→import {
+    37→  Reveal,
+    38→  StaggerGroup,
+    39→  fadeUp,
+    40→} from '@/components/motion-helpers'
+    41→import { api, ApiError } from '@/lib/api-client'
+    42→import { useAppStore } from '@/lib/store'
+    43→import { LANGUAGES, EXPIRY_OPTIONS, formatBytes } from '@/lib/ui-utils'
+    44→import type { SafePaste, SafeUser } from '@/lib/types'
+    45→
+    46→const MAX_FILE_BYTES = 25 * 1024 * 1024 // 25 MB cap (mirrors server enforcement)
+    47→
+    48→const VISIBILITY_OPTIONS: {
+    49→  value: 'public' | 'unlisted' | 'private'
+    50→  label: string
+    51→  icon: typeof Globe
+    52→}[] = [
+    53→  { value: 'public', label: 'Public', icon: Globe },
+    54→  { value: 'unlisted', label: 'Unlisted', icon: Link2 },
+    55→  { value: 'private', label: 'Private', icon: Lock },
+    56→]
+    57→
+    58→// Deduped language list — "Auto-detect" (plaintext) first.
+    59→const LANGUAGE_OPTIONS: { value: string; label: string }[] = (() => {
+    60→  const seen = new Set<string>(['plaintext'])
+    61→  const out: { value: string; label: string }[] = [
+    62→    { value: 'plaintext', label: 'Auto-detect' },
+    63→  ]
+    64→  for (const l of LANGUAGES) {
+    65→    if (!seen.has(l.value)) {
+    66→      out.push(l)
+    67→      seen.add(l.value)
+    68→    }
+    69→  }
+    70→  return out
+    71→})()
+    72→
+    73→const FEATURE_CHIPS = ['45+ languages', 'burn-after-read', 'password-protected']
+    74→
+    75→const SECTION_LABEL_CLS =
+    76→  'font-mono text-[11px] uppercase tracking-wider text-muted-foreground'
+    77→
+    78→const BORDERLESS_INPUT_CLS =
+    79→  'border-0 border-b border-border rounded-none px-0 text-sm focus-visible:border-brand focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50 h-auto py-2 shadow-none'
+    80→
+    81→const TAB_TRIGGER_CLS =
+    82→  'rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2 pt-1 text-muted-foreground shadow-none hover:text-foreground data-[state=active]:border-brand data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none'
+    83→
+    84→export function HomeView() {
+    85→  const user = useAppStore((s) => s.user)
+    86→  const goView = useAppStore((s) => s.goView)
+    87→  const goBrowse = useAppStore((s) => s.goBrowse)
+    88→  const goLogin = useAppStore((s) => s.goLogin)
+    89→
+    90→  // --- shared form state ---
+    91→  const [tab, setTab] = useState<'text' | 'file'>('text')
+    92→  const [title, setTitle] = useState('')
+    93→  const [description, setDescription] = useState('')
+    94→  const [tags, setTags] = useState('')
+    95→
+    96→  // text-only
+    97→  const [textContent, setTextContent] = useState('')
+    98→  const [language, setLanguage] = useState('plaintext')
+    99→
+   100→  // file-only
+   101→  const [file, setFile] = useState<File | null>(null)
+   102→  const [dragOver, setDragOver] = useState(false)
+   103→  const fileInputRef = useRef<HTMLInputElement>(null)
+   104→
+   105→  // shared options
+   106→  const [visibility, setVisibility] = useState<'public' | 'unlisted' | 'private'>('public')
+   107→  const [passwordEnabled, setPasswordEnabled] = useState(false)
+   108→  const [password, setPassword] = useState('')
+   109→  const [burnAfterRead, setBurnAfterRead] = useState(false)
+   110→  const [expiryPreset, setExpiryPreset] = useState('never')
+   111→  const [expiryCustom, setExpiryCustom] = useState('')
+   112→
+   113→  const [submitting, setSubmitting] = useState(false)
+   114→
+   115→  // recent public pastes
+   116→  const [recent, setRecent] = useState<SafePaste[]>([])
+   117→  const [loadingRecent, setLoadingRecent] = useState(true)
+   118→
+   119→  // Demote private → public if the user logs out while private is selected.
+   120→  useEffect(() => {
+   121→    if (user === null && visibility === 'private') {
+   122→      setVisibility('public')
+   123→    }
+   124→  }, [user, visibility])
+   125→
+   126→  // Fetch recent public pastes on mount
+   127→  useEffect(() => {
+   128→    let active = true
+   129→    setLoadingRecent(true)
+   130→    api
+   131→      .listPastes({ scope: 'public', pageSize: 6 })
+   132→      .then((rows) => {
+   133→        if (active) setRecent(rows)
+   134→      })
+   135→      .catch(() => {
+   136→        if (active) setRecent([])
+   137→      })
+   138→      .finally(() => {
+   139→        if (active) setLoadingRecent(false)
+   140→      })
+   141→    return () => {
+   142→      active = false
+   143→    }
+   144→  }, [])
+   145→
+   146→  // --- file handling ---
+   147→  function handleFileSelected(f: File | null | undefined) {
+   148→    if (!f) {
+   149→      setFile(null)
+   150→      return
+   151→    }
+   152→    if (f.size > MAX_FILE_BYTES) {
+   153→      toast.error(`File too large (max ${formatBytes(MAX_FILE_BYTES)})`)
+   154→      return
+   155→    }
+   156→    setFile(f)
+   157→  }
+   158→
+   159→  function onDrop(e: React.DragEvent<HTMLDivElement>) {
+   160→    e.preventDefault()
+   161→    setDragOver(false)
+   162→    handleFileSelected(e.dataTransfer.files?.[0])
+   163→  }
+   164→
+   165→  function clearFile() {
+   166→    setFile(null)
+   167→    if (fileInputRef.current) fileInputRef.current.value = ''
+   168→  }
+   169→
+   170→  // --- submit handlers ---
+   171→  async function handleCreateText() {
+   172→    if (!textContent.trim()) {
+   173→      toast.error('Paste content is empty')
+   174→      return
+   175→    }
+   176→    if (visibility === 'private' && !user) {
+   177→      toast.error('Log in to create private pastes')
+   178→      return
+   179→    }
+   180→    setSubmitting(true)
+   181→    try {
+   182→      const rows = await api.createPaste({
+   183→        title: title.trim() || undefined,
+   184→        description: description.trim() || undefined,
+   185→        tags: tags.trim() || undefined,
+   186→        language,
+   187→        textContent,
+   188→        visibility,
+   189→        password: passwordEnabled && password ? password : undefined,
+   190→        burnAfterRead: burnAfterRead || undefined,
+   191→        expiryPreset,
+   192→        expiryCustom: expiryPreset === 'custom' ? expiryCustom : undefined,
+   193→      })
+   194→      toast.success('Paste created')
+   195→      const created = rows[0]
+   196→      if (created) goView(created.slug)
+   197→    } catch (err) {
+   198→      const msg = err instanceof ApiError ? err.message : 'Failed to create paste'
+   199→      toast.error(msg)
+   200→    } finally {
+   201→      setSubmitting(false)
+   202→    }
+   203→  }
+   204→
+   205→  async function handleUploadFile() {
+   206→    if (!file) {
+   207→      toast.error('Select a file first')
+   208→      return
+   209→    }
+   210→    if (file.size > MAX_FILE_BYTES) {
+   211→      toast.error(`File too large (max ${formatBytes(MAX_FILE_BYTES)})`)
+   212→      return
+   213→    }
+   214→    if (visibility === 'private' && !user) {
+   215→      toast.error('Log in to create private pastes')
+   216→      return
+   217→    }
+   218→    setSubmitting(true)
+   219→    try {
+   220→      const fd = new FormData()
+   221→      fd.append('file', file)
+   222→      if (title.trim()) fd.append('title', title.trim())
+   223→      if (description.trim()) fd.append('description', description.trim())
+   224→      if (tags.trim()) fd.append('tags', tags.trim())
+   225→      fd.append('visibility', visibility)
+   226→      if (passwordEnabled && password) fd.append('password', password)
+   227→      if (burnAfterRead) fd.append('burnAfterRead', 'true')
+   228→      fd.append('expiryPreset', expiryPreset)
+   229→      if (expiryPreset === 'custom' && expiryCustom) fd.append('expiryCustom', expiryCustom)
+   230→
+   231→      const rows = await api.uploadFile(fd)
+   232→      toast.success('File uploaded')
+   233→      const created = rows[0]
+   234→      if (created) goView(created.slug)
+   235→    } catch (err) {
+   236→      const msg = err instanceof ApiError ? err.message : 'Failed to upload file'
+   237→      toast.error(msg)
+   238→    } finally {
+   239→      setSubmitting(false)
+   240→    }
+   241→  }
+   242→
+   243→  const sidebarProps = {
+   244→    user,
+   245→    visibility,
+   246→    setVisibility,
+   247→    passwordEnabled,
+   248→    setPasswordEnabled: (v: boolean) => {
+   249→      setPasswordEnabled(v)
+   250→      if (v) setBurnAfterRead(false)
+   251→    },
+   252→    password,
+   253→    setPassword,
+   254→    burnAfterRead,
+   255→    setBurnAfterRead: (v: boolean) => {
+   256→      setBurnAfterRead(v)
+   257→      if (v) setPasswordEnabled(false)
+   258→    },
+   259→    expiryPreset,
+   260→    setExpiryPreset,
+   261→    expiryCustom,
+   262→    setExpiryCustom,
+   263→    submitting,
+   264→    onLogin: goLogin,
+   265→  }
+   266→
+   267→  return (
+   268→    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 md:py-12">
+   269→      {/* ----------------------------------------------------------- */}
+   270→      {/* Hero — editorial, left-aligned                              */}
+   271→      {/* ----------------------------------------------------------- */}
+   272→      <Reveal>
+   273→        <section className="space-y-4">
+   274→          <span className="font-mono text-xs text-brand">
+   275→            {'>'} new_paste.sh
+   276→          </span>
+   277→          <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
+   278→            Share code, <span className="text-gradient">beautifully.</span>
+   279→          </h1>
+   280→          <p className="max-w-2xl text-base text-muted-foreground">
+   281→            Monaco-grade syntax highlighting. Burn-after-read. Password
+   282→            protection. Zero friction.
+   283→          </p>
+   284→          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-1">
+   285→            {FEATURE_CHIPS.map((label) => (
+   286→              <span
+   287→                key={label}
+   288→                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+   289→              >
+   290→                <span className="brand-dot" aria-hidden />
+   291→                {label}
+   292→              </span>
+   293→            ))}
+   294→          </div>
+   295→        </section>
+   296→      </Reveal>
+   297→
+   298→      {/* ----------------------------------------------------------- */}
+   299→      {/* Create panel — surface card w/ terminal-strip window chrome  */}
+   300→      {/* ----------------------------------------------------------- */}
+   301→      <Reveal delay={0.1} className="mt-8">
+   302→        <div className="surface overflow-hidden rounded-2xl">
+   303→          {/* Window chrome */}
+   304→          <div className="terminal-strip flex h-10 items-center gap-2 px-4">
+   305→            <div className="flex gap-1.5">
+   306→              <div className="h-3 w-3 rounded-full bg-rose-500" aria-hidden />
+   307→              <div className="h-3 w-3 rounded-full bg-amber-500" aria-hidden />
+   308→              <div className="h-3 w-3 rounded-full bg-brand" aria-hidden />
+   309→            </div>
+   310→            <span className="ml-2 font-mono text-xs text-muted-foreground">
+   311→              pasteshare — new
+   312→            </span>
+   313→          </div>
+   314→
+   315→          {/* Body */}
+   316→          <div className="p-5 md:p-6">
+   317→            <Tabs value={tab} onValueChange={(v) => setTab(v as 'text' | 'file')}>
+   318→              <TabsList className="h-auto gap-5 bg-transparent p-0">
+   319→                <TabsTrigger value="text" className={TAB_TRIGGER_CLS}>
+   320→                  <FileCode className="h-3.5 w-3.5" /> Text
+   321→                </TabsTrigger>
+   322→                <TabsTrigger value="file" className={TAB_TRIGGER_CLS}>
+   323→                  <Upload className="h-3.5 w-3.5" /> File
+   324→                </TabsTrigger>
+   325→              </TabsList>
+   326→
+   327→              {/* ----------------------- TEXT TAB ----------------------- */}
+   328→              <TabsContent value="text" className="mt-5 outline-none">
+   329→                <div className="grid gap-5 lg:grid-cols-3">
+   330→                  {/* Main / left column */}
+   331→                  <div className="space-y-3 lg:col-span-2">
+   332→                    <Input
+   333→                      value={title}
+   334→                      onChange={(e) => setTitle(e.target.value)}
+   335→                      placeholder="Untitled paste…"
+   336→                      className={`${BORDERLESS_INPUT_CLS} text-xl font-medium`}
+   337→                      aria-label="Paste title"
+   338→                    />
+   339→                    <Input
+   340→                      value={description}
+   341→                      onChange={(e) => setDescription(e.target.value)}
+   342→                      placeholder="Short description…"
+   343→                      className={BORDERLESS_INPUT_CLS}
+   344→                      aria-label="Paste description"
+   345→                    />
+   346→                    <div className="relative">
+   347→                      <Tag className="pointer-events-none absolute left-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+   348→                      <Input
+   349→                        value={tags}
+   350→                        onChange={(e) => setTags(e.target.value)}
+   351→                        placeholder="comma, separated, tags"
+   352→                        className={`${BORDERLESS_INPUT_CLS} pl-5`}
+   353→                        aria-label="Paste tags"
+   354→                      />
+   355→                    </div>
+   356→
+   357→                    {/* Monaco editor container */}
+   358→                    <div className="mt-4 overflow-hidden rounded-lg border border-border bg-surface-2">
+   359→                      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+   360→                        <span className="font-mono text-[11px] text-muted-foreground">
+   361→                          {language}
+   362→                        </span>
+   363→                        <span className="font-mono text-[10px] uppercase tracking-wider text-brand">
+   364→                          read-write
+   365→                        </span>
+   366→                      </div>
+   367→                      <div className="min-h-[420px]">
+   368→                        <CodeEditor
+   369→                          value={textContent}
+   370→                          onChange={(v) => setTextContent(v ?? '')}
+   371→                          language={language}
+   372→                          height="100%"
+   373→                          wordWrap
+   374→                          showLineNumbers
+   375→                        />
+   376→                      </div>
+   377→                    </div>
+   378→                  </div>
+   379→
+   380→                  {/* Sidebar */}
+   381→                  <div className="lg:col-span-1">
+   382→                    <SidebarCard
+   383→                      {...sidebarProps}
+   384→                      language={language}
+   385→                      setLanguage={setLanguage}
+   386→                      submitLabel="Create paste"
+   387→                      onSubmit={handleCreateText}
+   388→                      submitDisabled={!textContent.trim()}
+   389→                      submitIcon={<Plus className="h-4 w-4" />}
+   390→                    />
+   391→                  </div>
+   392→                </div>
+   393→              </TabsContent>
+   394→
+   395→              {/* ----------------------- FILE TAB ----------------------- */}
+   396→              <TabsContent value="file" className="mt-5 outline-none">
+   397→                <div className="grid gap-5 lg:grid-cols-3">
+   398→                  {/* Main / left column */}
+   399→                  <div className="space-y-3 lg:col-span-2">
+   400→                    <Input
+   401→                      value={title}
+   402→                      onChange={(e) => setTitle(e.target.value)}
+   403→                      placeholder="File title (optional)…"
+   404→                      className={`${BORDERLESS_INPUT_CLS} text-xl font-medium`}
+   405→                      aria-label="File title"
+   406→                    />
+   407→                    <Input
+   408→                      value={description}
+   409→                      onChange={(e) => setDescription(e.target.value)}
+   410→                      placeholder="Short description…"
+   411→                      className={BORDERLESS_INPUT_CLS}
+   412→                      aria-label="File description"
+   413→                    />
+   414→                    <div className="relative">
+   415→                      <Tag className="pointer-events-none absolute left-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+   416→                      <Input
+   417→                        value={tags}
+   418→                        onChange={(e) => setTags(e.target.value)}
+   419→                        placeholder="comma, separated, tags"
+   420→                        className={`${BORDERLESS_INPUT_CLS} pl-5`}
+   421→                        aria-label="File tags"
+   422→                      />
+   423→                    </div>
+   424→
+   425→                    {/* Dropzone */}
+   426→                    <div
+   427→                      role="button"
+   428→                      tabIndex={0}
+   429→                      onClick={() => fileInputRef.current?.click()}
+   430→                      onKeyDown={(e) => {
+   431→                        if (e.key === 'Enter' || e.key === ' ') {
+   432→                          e.preventDefault()
+   433→                          fileInputRef.current?.click()
+   434→                        }
+   435→                      }}
+   436→                      onDrop={onDrop}
+   437→                      onDragOver={(e) => {
+   438→                        e.preventDefault()
+   439→                        setDragOver(true)
+   440→                      }}
+   441→                      onDragLeave={() => setDragOver(false)}
+   442→                      aria-label="File dropzone — click to browse"
+   443→                      className={[
+   444→                        'mt-4 flex min-h-[280px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-6 text-center transition-colors',
+   445→                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+   446→                        dragOver
+   447→                          ? 'border-brand bg-brand/5'
+   448→                          : 'border-border bg-surface-2/50 hover:border-brand hover:bg-brand/5',
+   449→                      ].join(' ')}
+   450→                    >
+   451→                      <input
+   452→                        ref={fileInputRef}
+   453→                        type="file"
+   454→                        className="hidden"
+   455→                        onChange={(e) => handleFileSelected(e.target.files?.[0])}
+   456→                      />
+   457→                      {file ? (
+   458→                        <motion.div
+   459→                          initial={{ opacity: 0, scale: 0.96 }}
+   460→                          animate={{ opacity: 1, scale: 1 }}
+   461→                          transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
+   462→                          onClick={(e) => e.stopPropagation()}
+   463→                          className="flex w-full max-w-md items-center gap-4 rounded-lg border border-border bg-surface p-4"
+   464→                        >
+   465→                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-brand/15 text-brand">
+   466→                            <FileText className="h-5 w-5" />
+   467→                          </div>
+   468→                          <div className="min-w-0 flex-1 text-left">
+   469→                            <p className="truncate text-sm font-medium">
+   470→                              {file.name}
+   471→                            </p>
+   472→                            <p className="font-mono text-[11px] text-muted-foreground">
+   473→                              {formatBytes(file.size)} · {file.type || 'unknown'}
+   474→                            </p>
+   475→                          </div>
+   476→                          <button
+   477→                            type="button"
+   478→                            onClick={(e) => {
+   479→                              e.stopPropagation()
+   480→                              clearFile()
+   481→                            }}
+   482→                            aria-label="Remove file"
+   483→                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+   484→                          >
+   485→                            <X className="h-4 w-4" />
+   486→                          </button>
+   487→                        </motion.div>
+   488→                      ) : (
+   489→                        <>
+   490→                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-3 text-muted-foreground">
+   491→                            <Upload className="h-5 w-5" />
+   492→                          </div>
+   493→                          <div className="space-y-1">
+   494→                            <p className="text-sm font-medium">Drop a file here</p>
+   495→                            <p className="text-xs text-muted-foreground">
+   496→                              or click to browse
+   497→                            </p>
+   498→                          </div>
+   499→                          <p className="font-mono text-[10px] text-muted-foreground">
+   500→                            Max {formatBytes(MAX_FILE_BYTES)}
+   501→                          </p>
+   502→                        </>
+   503→                      )}
+   504→                    </div>
+   505→                  </div>
+   506→
+   507→                  {/* Sidebar */}
+   508→                  <div className="lg:col-span-1">
+   509→                    <SidebarCard
+   510→                      {...sidebarProps}
+   511→                      hideLanguage
+   512→                      submitLabel="Upload file"
+   513→                      onSubmit={handleUploadFile}
+   514→                      submitDisabled={!file}
+   515→                      submitIcon={<Upload className="h-4 w-4" />}
+   516→                    />
+   517→                  </div>
+   518→                </div>
+   519→              </TabsContent>
+   520→            </Tabs>
+   521→          </div>
+   522→        </div>
+   523→      </Reveal>
+   524→
+   525→      {/* ----------------------------------------------------------- */}
+   526→      {/* Recent public pastes                                        */}
+   527→      {/* ----------------------------------------------------------- */}
+   528→      <RecentPastes
+   529→        pastes={recent}
+   530→        loading={loadingRecent}
+   531→        onBrowse={goBrowse}
+   532→      />
+   533→    </div>
+   534→  )
+   535→}
+   536→
+   537→/* ------------------------------------------------------------------ */
+   538→/* Sidebar — language / visibility / password / burn / expiry + CTA   */
+   539→/* ------------------------------------------------------------------ */
+   540→
+   541→type SidebarCardProps = {
+   542→  user: SafeUser | null
+   543→  language?: string
+   544→  setLanguage?: (v: string) => void
+   545→  visibility: 'public' | 'unlisted' | 'private'
+   546→  setVisibility: (v: 'public' | 'unlisted' | 'private') => void
+   547→  passwordEnabled: boolean
+   548→  setPasswordEnabled: (v: boolean) => void
+   549→  password: string
+   550→  setPassword: (v: string) => void
+   551→  burnAfterRead: boolean
+   552→  setBurnAfterRead: (v: boolean) => void
+   553→  expiryPreset: string
+   554→  setExpiryPreset: (v: string) => void
+   555→  expiryCustom: string
+   556→  setExpiryCustom: (v: string) => void
+   557→  submitLabel: string
+   558→  onSubmit: () => void
+   559→  submitting: boolean
+   560→  submitDisabled: boolean
+   561→  submitIcon: React.ReactNode
+   562→  hideLanguage?: boolean
+   563→  onLogin: () => void
+   564→}
+   565→
+   566→function SidebarCard(props: SidebarCardProps) {
+   567→  const {
+   568→    user,
+   569→    language,
+   570→    setLanguage,
+   571→    visibility,
+   572→    setVisibility,
+   573→    passwordEnabled,
+   574→    setPasswordEnabled,
+   575→    password,
+   576→    setPassword,
+   577→    burnAfterRead,
+   578→    setBurnAfterRead,
+   579→    expiryPreset,
+   580→    setExpiryPreset,
+   581→    expiryCustom,
+   582→    setExpiryCustom,
+   583→    submitLabel,
+   584→    onSubmit,
+   585→    submitting,
+   586→    submitDisabled,
+   587→    submitIcon,
+   588→    hideLanguage,
+   589→    onLogin,
+   590→  } = props
+   591→
+   592→  return (
+   593→    <div className="surface-2 space-y-4 rounded-xl p-4">
+   594→      {/* Language */}
+   595→      {!hideLanguage && language !== undefined && setLanguage && (
+   596→        <div className="space-y-1.5">
+   597→          <Label className={SECTION_LABEL_CLS}>Language</Label>
+   598→          <Select value={language} onValueChange={setLanguage}>
+   599→            <SelectTrigger className="w-full border-border bg-surface-3">
+   600→              <SelectValue />
+   601→            </SelectTrigger>
+   602→            <SelectContent>
+   603→              {LANGUAGE_OPTIONS.map((opt) => (
+   604→                <SelectItem key={`${opt.value}-${opt.label}`} value={opt.value}>
+   605→                  {opt.label}
+   606→                </SelectItem>
+   607→              ))}
+   608→            </SelectContent>
+   609→          </Select>
+   610→        </div>
+   611→      )}
+   612→
+   613→      {/* Visibility — 3 stacked radio cards */}
+   614→      <div className="space-y-1.5">
+   615→        <Label className={SECTION_LABEL_CLS}>Visibility</Label>
+   616→        <div className="space-y-1.5">
+   617→          {VISIBILITY_OPTIONS.map((opt) => {
+   618→            const disabled = opt.value === 'private' && !user
+   619→            const selected = visibility === opt.value
+   620→            return (
+   621→              <button
+   622→                key={opt.value}
+   623→                type="button"
+   624→                disabled={disabled}
+   625→                onClick={() => !disabled && setVisibility(opt.value)}
+   626→                aria-pressed={selected}
+   627→                className={[
+   628→                  'flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+   629→                  selected
+   630→                    ? 'border-brand bg-brand/5 text-foreground'
+   631→                    : 'border-border text-muted-foreground hover:text-foreground',
+   632→                  disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+   633→                ].join(' ')}
+   634→              >
+   635→                <opt.icon
+   636→                  className={[
+   637→                    'h-3.5 w-3.5',
+   638→                    selected ? 'text-brand' : 'text-muted-foreground',
+   639→                  ].join(' ')}
+   640→                />
+   641→                <span className="flex-1 text-left">{opt.label}</span>
+   642→                {disabled && (
+   643→                  <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+   644→                    login required
+   645→                  </span>
+   646→                )}
+   647→              </button>
+   648→            )
+   649→          })}
+   650→        </div>
+   651→      </div>
+   652→
+   653→      {/* Password */}
+   654→      <div className="space-y-2">
+   655→        <div className="flex items-center justify-between">
+   656→          <Label
+   657→            htmlFor="pw-switch"
+   658→            className="flex items-center gap-1.5 text-sm font-medium"
+   659→          >
+   660→            <Lock className="h-3.5 w-3.5 text-muted-foreground" /> Password
+   661→          </Label>
+   662→          <Switch
+   663→            id="pw-switch"
+   664→            checked={passwordEnabled}
+   665→            onCheckedChange={setPasswordEnabled}
+   666→            disabled={burnAfterRead}
+   667→            className="data-[state=checked]:bg-brand"
+   668→          />
+   669→        </div>
+   670→        {passwordEnabled && (
+   671→          <Input
+   672→            type="password"
+   673→            value={password}
+   674→            onChange={(e) => setPassword(e.target.value)}
+   675→            placeholder="Password"
+   676→            className="bg-surface-3"
+   677→            autoComplete="new-password"
+   678→          />
+   679→        )}
+   680→      </div>
+   681→
+   682→      {/* Burn after read */}
+   683→      <div className="space-y-1">
+   684→        <div className="flex items-center justify-between">
+   685→          <Label
+   686→            htmlFor="burn-switch"
+   687→            className="flex items-center gap-1.5 text-sm font-medium"
+   688→          >
+   689→            <Flame className="h-3.5 w-3.5 text-muted-foreground" /> Burn after
+   690→            read
+   691→          </Label>
+   692→          <Switch
+   693→            id="burn-switch"
+   694→            checked={burnAfterRead}
+   695→            onCheckedChange={setBurnAfterRead}
+   696→            disabled={passwordEnabled}
+   697→            className="data-[state=checked]:bg-brand-2"
+   698→          />
+   699→        </div>
+   700→        <p className="text-[11px] text-muted-foreground">
+   701→          Deleted after first view
+   702→        </p>
+   703→      </div>
+   704→
+   705→      {/* Expiry */}
+   706→      <div className="space-y-1.5">
+   707→        <Label htmlFor="expiry-select" className={SECTION_LABEL_CLS}>
+   708→          Expires
+   709→        </Label>
+   710→        <Select value={expiryPreset} onValueChange={setExpiryPreset}>
+   711→          <SelectTrigger
+   712→            id="expiry-select"
+   713→            className="w-full border-border bg-surface-3"
+   714→          >
+   715→            <SelectValue />
+   716→          </SelectTrigger>
+   717→          <SelectContent>
+   718→            {EXPIRY_OPTIONS.map((opt) => (
+   719→              <SelectItem key={opt.value} value={opt.value}>
+   720→                {opt.label}
+   721→              </SelectItem>
+   722→            ))}
+   723→          </SelectContent>
+   724→        </Select>
+   725→        {expiryPreset === 'custom' && (
+   726→          <Input
+   727→            type="datetime-local"
+   728→            value={expiryCustom}
+   729→            onChange={(e) => setExpiryCustom(e.target.value)}
+   730→            className="bg-surface-3"
+   731→            aria-label="Custom expiry date and time"
+   732→          />
+   733→        )}
+   734→      </div>
+   735→
+   736→      {/* Submit */}
+   737→      <Button
+   738→        type="button"
+   739→        onClick={onSubmit}
+   740→        disabled={submitDisabled || submitting}
+   741→        className="btn-shine relative w-full gap-1.5 overflow-hidden rounded-md bg-brand text-brand-foreground font-medium hover:bg-brand/90"
+   742→        size="lg"
+   743→      >
+   744→        {submitting ? (
+   745→          <Loader2 className="h-4 w-4 animate-spin" />
+   746→        ) : (
+   747→          submitIcon
+   748→        )}
+   749→        {submitLabel}
+   750→      </Button>
+   751→
+   752→      {!user && (
+   753→        <p className="text-center text-[11px] text-muted-foreground">
+   754→          Guest paste —{' '}
+   755→          <button
+   756→            type="button"
+   757→            onClick={onLogin}
+   758→            className="font-medium text-brand hover:underline"
+   759→          >
+   760→            log in
+   761→          </button>{' '}
+   762→          for private pastes
+   763→        </p>
+   764→      )}
+   765→    </div>
+   766→  )
+   767→}
+   768→
+   769→/* ------------------------------------------------------------------ */
+   770→/* Recent public pastes                                               */
+   771→/* ------------------------------------------------------------------ */
+   772→
+   773→function RecentPastes({
+   774→  pastes,
+   775→  loading,
+   776→  onBrowse,
+   777→}: {
+   778→  pastes: SafePaste[]
+   779→  loading: boolean
+   780→  onBrowse: () => void
+   781→}) {
+   782→  return (
+   783→    <section className="mt-12">
+   784→      <div className="mb-4 flex items-center justify-between">
+   785→        <div className="flex items-center gap-2">
+   786→          <h2 className="text-lg font-semibold">Recent</h2>
+   787→          <span className="font-mono text-xs text-muted-foreground">/public</span>
+   788→        </div>
+   789→        <Button
+   790→          variant="ghost"
+   791→          size="sm"
+   792→          onClick={onBrowse}
+   793→          className="group gap-1.5 text-muted-foreground hover:text-foreground"
+   794→        >
+   795→          Browse all
+   796→          <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+   797→        </Button>
+   798→      </div>
+   799→
+   800→      {loading ? (
+   801→        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+   802→          {Array.from({ length: 3 }).map((_, i) => (
+   803→            <div
+   804→              key={i}
+   805→              className="shimmer h-40 rounded-xl bg-surface"
+   806→              aria-hidden
+   807→            />
+   808→          ))}
+   809→        </div>
+   810→      ) : pastes.length === 0 ? (
+   811→        <div className="rounded-xl border border-border bg-surface py-12 text-center">
+   812→          <p className="text-sm text-muted-foreground">
+   813→            No public pastes yet. Be the first.
+   814→          </p>
+   815→        </div>
+   816→      ) : (
+   817→        <StaggerGroup
+   818→          stagger={0.07}
+   819→          className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+   820→        >
+   821→          {pastes.map((p) => (
+   822→            <Reveal key={p.id} variant={fadeUp}>
+   823→              <PasteCard paste={p} />
+   824→            </Reveal>
+   825→          ))}
+   826→        </StaggerGroup>
+   827→      )}
+   828→    </section>
+   829→  )
+   830→}
+   831→

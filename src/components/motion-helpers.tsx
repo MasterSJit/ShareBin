@@ -4,14 +4,16 @@ import { motion, useInView, useMotionValue, useSpring, useTransform, type Varian
 import { useEffect, useRef, type ReactNode } from 'react'
 
 /* ---------------- Variants ---------------- */
+/* NOTE: Do NOT use `filter: blur()` in variants — it creates a permanent
+ * stacking context that breaks Monaco editor pointer events. Use opacity +
+ * transform only. */
 
 export const fadeUp: Variants = {
-  hidden: { opacity: 0, y: 24, filter: 'blur(6px)' },
+  hidden: { opacity: 0, y: 20 },
   show: {
     opacity: 1,
     y: 0,
-    filter: 'blur(0px)',
-    transition: { duration: 0.6, ease: [0.2, 0.8, 0.2, 1] },
+    transition: { duration: 0.55, ease: [0.2, 0.8, 0.2, 1] },
   },
 }
 
@@ -21,7 +23,7 @@ export const fadeIn: Variants = {
 }
 
 export const scaleIn: Variants = {
-  hidden: { opacity: 0, scale: 0.92 },
+  hidden: { opacity: 0, scale: 0.95 },
   show: {
     opacity: 1,
     scale: 1,
@@ -30,12 +32,12 @@ export const scaleIn: Variants = {
 }
 
 export const slideInLeft: Variants = {
-  hidden: { opacity: 0, x: -32 },
+  hidden: { opacity: 0, x: -28 },
   show: { opacity: 1, x: 0, transition: { duration: 0.5, ease: [0.2, 0.8, 0.2, 1] } },
 }
 
 export const slideInRight: Variants = {
-  hidden: { opacity: 0, x: 32 },
+  hidden: { opacity: 0, x: 28 },
   show: { opacity: 1, x: 0, transition: { duration: 0.5, ease: [0.2, 0.8, 0.2, 1] } },
 }
 
@@ -175,15 +177,15 @@ export function TiltCard({
 }
 
 /* ---------------- Page transition wrapper ---------------- */
-
+/* NOTE: No `filter` — would break Monaco editor pointer events. */
 export function PageTransition({ children, k }: { children: ReactNode; k: string }) {
   return (
     <motion.div
       key={k}
-      initial={{ opacity: 0, y: 12, filter: 'blur(8px)' }}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      exit={{ opacity: 0, y: -8, filter: 'blur(8px)' }}
-      transition={{ duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.35, ease: [0.2, 0.8, 0.2, 1] }}
     >
       {children}
     </motion.div>

@@ -586,3 +586,34 @@ Stage Summary:
 - Navigation history: FULLY WORKING. Every nav click (New/Browse/Dashboard/Admin/Login/Sign-up/open-paste) pushes a browser history entry. Back button (header) + browser Back/Forward + deep-linkable URLs (`/#/browse`, `/#/p/<slug>`, etc.) + reload-persists-view all work.
 - UI: completely redesigned in "terminal-grade" language — lime accent on deep charcoal, solid elevated surfaces (no glass blur), mono labels/tokens, `.terminal-strip` window chrome, purposeful restrained motion. All 6 views + header + footer + paste-card rebuilt.
 - Ready to preview via the Preview Panel (right) or "Open in New Tab".
+
+---
+Task ID: 13 (bug fixes + GSAP + new form fields)
+Agent: orchestrator (main)
+Task: Fix 5 issues: browse overlap, "beautifully." invisible, form field redesign, GSAP animations, Monaco not clickable
+
+Work Log:
+- **Monaco editor not clickable (root cause)**: The `fadeUp` variant and `PageTransition` in `motion-helpers.tsx` used `filter: 'blur(6px)'` / `filter: 'blur(8px)'`. Even after animation completes, Framer Motion leaves the `filter` style on the element, creating a permanent stacking context that blocks Monaco's iframe pointer events. Fixed by removing ALL `filter` usage from `fadeUp`, `PageTransition`, and all other variants. Now uses only `opacity` + `y` transform.
+- **"beautifully." text not showing**: The `SplitText` component wraps each char in `inline-block` spans, which breaks `background-clip: text` inheritance — the gradient was on the parent but the char spans rendered transparent. Fixed by removing `SplitText` from inside the `.text-gradient` span; "beautifully." is now a plain text node inside the gradient span. GSAP animates it as a single unit via `[data-hero="gradient"]` selector.
+- **Browse UI overlapping search results**: Removed `sticky top-16 z-30` from the filter bar — it was covering results on scroll. Now a normal block element with clean spacing.
+- **New form field design**: Added `.field` / `.field-input` / `.field-bar` / `.field-float` / `.field-float-label` CSS classes in globals.css — filled-style inputs with animated bottom accent bar (scaleX 0→1 on focus), focus glow ring, floating mono uppercase labels. Replaced all borderless inputs in home-view with the new design.
+- **GSAP animations**: Installed `gsap` package. Created `src/components/gsap-helpers.tsx` with:
+  - `useGsapHeroEntrance` — timeline: eyebrow → char-split title → gradient → subtitle → chips (staggered, with rotateX on chars)
+  - `useGsapMagnetic` — magnetic hover effect on buttons (cursor-following offset)
+  - `useGsapFieldGlow` — animated field focus glow
+  - `useGsapStaggerEntrance` — generic stagger for lists
+  - `useGsapCounter` — count-up numbers
+  - `<SplitText>` — char-split for text animation
+- Applied GSAP to home-view: hero entrance timeline, magnetic Create/Upload button, panel fade-in.
+- Also fixed `text-gradient` CSS: added `color: var(--brand)` fallback, animated gradient shift (`gradient-shift` keyframes), more vivid gradient stops.
+- Verified via Agent Browser + VLM:
+  - "beautifully." renders in lime/green gradient ✅
+  - Monaco editor is clickable and writable ✅
+  - Browse page filter bar no longer overlaps results ✅
+  - Form fields show floating mono uppercase labels (TITLE, DESCRIPTION, TAGS) ✅
+  - GSAP hero entrance animation plays on load ✅
+  - Created a paste via new UI → navigated to paste view → content visible ✅
+  - Zero console/runtime errors ✅
+
+Stage Summary:
+- All 5 user-reported issues fixed. GSAP animations added (hero char-split timeline, magnetic buttons). Form fields redesigned with floating labels + animated accent bars. Lint clean. Dev server healthy.

@@ -146,20 +146,21 @@ export function BrowseView() {
         </p>
       </Reveal>
 
-      {/* ===== Filter bar (sticky) ===== */}
+      {/* ===== Filter bar ===== */}
       <Reveal delay={0.05} className="mb-6">
-        <div className="surface sticky top-16 z-30 rounded-xl p-3">
+        <div className="surface rounded-xl p-3">
           <div className="flex flex-col gap-3 md:flex-row md:items-center">
             {/* Search */}
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
+            <div className="field relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search title, content, language, tags…"
                 aria-label="Search pastes"
-                className="h-10 border-border bg-surface-3 pl-9 text-sm focus-visible:ring-1 focus-visible:ring-brand focus-visible:border-brand"
+                className="field-input h-10 pl-9"
               />
+              <div className="field-bar" />
             </div>
 
             {/* Scope toggle */}
