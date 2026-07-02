@@ -22,6 +22,7 @@ import {
   getSetting,
 } from '@/lib/paste-utils'
 import { toSafePaste, findPaste, invalidatePaste, invalidateUserPastes, recordView } from '@/lib/paste-access'
+import { getUserLimits, isExpiryAllowed, checkMonthlyLimit, checkStorageLimit, incrementMonthlyPastes } from '@/lib/rbac'
 
 // PUT /api/paste — create a text paste
 export async function PUT(req: NextRequest) {
@@ -51,18 +52,47 @@ export async function PUT(req: NextRequest) {
     return forbidden('Guest posting is disabled. Please log in.')
   }
 
-  // Private requires login
-  if (body.visibility === 'private' && !session) {
-    return forbidden('Private pastes require login')
+  // ---- Plan limits ----
+  const limits = await getUserLimits(session?.userId ?? null)
+
+  // Private requires login + plan
+  if (body.visibility === 'private') {
+    if (!session) return forbidden('Private pastes require login')
+    if (!limits.allowPrivate) return forbidden(`Private pastes require a Pro plan or higher (current: ${limits.planName})`)
   }
 
-  // Burn-after-read cannot be combined with password protection (per spec §2.2)
+  // Burn-after-read requires plan
+  if (body.burnAfterRead && !limits.allowBurnAfterRead) {
+    return forbidden(`Burn-after-read requires a higher plan (current: ${limits.planName})`)
+  }
+
+  // Password protection requires plan
+  if (body.password && !limits.allowPassword) {
+    return forbidden(`Password protection requires a higher plan (current: ${limits.planName})`)
+  }
+
+  // Burn-after-read cannot be combined with password protection
   if (body.burnAfterRead && body.password) {
     return unprocessable('Burn-after-read cannot be combined with password protection')
   }
 
+  // Expiry preset must be allowed by plan
+  const expiryPreset = body.expiryPreset || 'never'
+  if (!isExpiryAllowed(expiryPreset, limits)) {
+    if (expiryPreset === 'custom') {
+      return forbidden(`Custom expiry requires a Pro plan or higher (current: ${limits.planName})`)
+    }
+    return forbidden(`Expiry "${expiryPreset}" is not available on your plan (current: ${limits.planName})`)
+  }
+
   if (!body.textContent || !body.textContent.trim()) {
     return badRequest('textContent is required')
+  }
+
+  // Per-paste size limit (text content size in bytes)
+  const textBytes = Buffer.byteLength(body.textContent, 'utf8')
+  if (textBytes > limits.maxPasteSize) {
+    return forbidden(`Paste too large (max ${limits.maxPasteSize} bytes on ${limits.planName} plan)`)
   }
 
   const ip = req.headers.get('x-forwarded-for') || 'unknown'
@@ -70,13 +100,19 @@ export async function PUT(req: NextRequest) {
     return tooManyRequests('Too many pastes created. Slow down.')
   }
 
+  // Monthly paste limit
+  const canCreate = await checkMonthlyLimit(session?.userId ?? null, limits)
+  if (!canCreate) {
+    return tooManyRequests(`Monthly paste limit reached (${limits.maxPastesPerMonth} on ${limits.planName} plan)`)
+  }
+
   const visibility = (VISIBILITY as readonly string[]).includes(body.visibility || '')
     ? (body.visibility as string)
     : 'public'
 
   const slug = await generateUniqueSlug()
-  const expiresAt = computeExpiry(body.expiryPreset || 'never', body.expiryCustom)
-  if (body.expiryPreset === 'custom' && !expiresAt) {
+  const expiresAt = computeExpiry(expiryPreset, body.expiryCustom)
+  if (expiryPreset === 'custom' && !expiresAt) {
     return unprocessable('Invalid custom expiry date')
   }
   if (expiresAt && expiresAt.getTime() < Date.now()) {
@@ -94,7 +130,7 @@ export async function PUT(req: NextRequest) {
       slug,
       contentType: 'text',
       language: (body.language || 'plaintext').slice(0, 50),
-      textContent: body.textContent.slice(0, 5 * 1024 * 1024), // 5 MB cap
+      textContent: body.textContent.slice(0, limits.maxPasteSize),
       visibility,
       passwordHash,
       burnAfterRead: !!body.burnAfterRead,
@@ -104,7 +140,10 @@ export async function PUT(req: NextRequest) {
     include: { owner: true },
   })
 
-  if (session) invalidateUserPastes(session.userId)
+  if (session) {
+    await incrementMonthlyPastes(session.userId)
+    invalidateUserPastes(session.userId)
+  }
   return created('Paste created successfully', [toSafePaste(paste, { includeContent: false })])
 }
 

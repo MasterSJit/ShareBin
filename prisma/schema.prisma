@@ -1,7 +1,5 @@
 // PasteShare — Prisma schema (SQLite dialect)
-// Adjusted from the Drizzle/PostgreSQL spec in the docs to fit the
-// sandbox stack (SQLite + Prisma). Enums are represented as String
-// columns with app-level validation.
+// Enums are represented as String columns with app-level validation.
 
 generator client {
   provider = "prisma-client-js"
@@ -17,7 +15,9 @@ model User {
   email           String   @unique
   passwordHash    String
   displayName     String?
-  role            String   @default("user") // "user" | "admin"
+  role            String   @default("user") // denormalized: "user" | "moderator" | "admin"
+  roleId          String?  // FK to Role (RBAC)
+  roleRef         Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
   status          String   @default("active") // "pending_verification" | "active" | "suspended" | "banned"
   emailVerifiedAt DateTime?
   apiKey          String?  @unique
@@ -27,6 +27,8 @@ model User {
   pastes       Paste[]
   accessGrants PasteAccessGrant[]
   auditLogs    AuditLog[]
+  subscriptions Subscription[]
+  usageRecord  UsageRecord?
 }
 
 model Paste {
@@ -93,4 +95,98 @@ model SiteSetting {
   key       String   @id
   value     String // JSON string for flexibility
   updatedAt DateTime @updatedAt
+}
+
+// ============================================================
+// RBAC — Roles & Permissions
+// ============================================================
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique // "user", "moderator", "admin", etc.
+  description String?
+  isSystem    Boolean  @default(false) // system roles can't be deleted
+  color       String?  // UI accent color (e.g., "brand", "brand-2", "amber")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  name        String   @unique // e.g., "paste:create", "paste:delete:any", "admin:access"
+  description String?
+  category    String   @default("general") // "paste", "file", "user", "admin", "subscription"
+  createdAt   DateTime @default(now())
+
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+// ============================================================
+// Subscription Plans & Tracking
+// ============================================================
+
+model Plan {
+  id                    String   @id @default(cuid())
+  name                  String   @unique // "Free", "Pro", "Business"
+  description           String?
+  monthlyPrice          Float    @default(0) // in USD
+  maxStorageBytes       BigInt   @default(104857600) // 100 MB default
+  maxPasteSize          Int      @default(5242880) // 5 MB per paste/file
+  maxPastesPerMonth     Int      @default(50)
+  allowedExpiryPresets  String   @default("never,10m,1h,1d,1w,1M,1y") // comma-separated
+  allowCustomExpiry     Boolean  @default(false)
+  allowBurnAfterRead    Boolean  @default(true)
+  allowPassword         Boolean  @default(true)
+  allowPrivate          Boolean  @default(false)
+  allowFileUpload       Boolean  @default(true)
+  isSystem              Boolean  @default(false) // system plans can't be deleted
+  isActive              Boolean  @default(true)
+  sortOrder             Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId     String
+  plan       Plan      @relation(fields: [planId], references: [id])
+  status     String    @default("active") // "active", "expired", "cancelled", "suspended"
+  startedAt  DateTime  @default(now())
+  expiresAt  DateTime? // null = lifetime
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model UsageRecord {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storageBytes    BigInt   @default(0) // cached total storage used
+  pasteCount      Int      @default(0) // cached active paste count
+  fileCount       Int      @default(0) // cached active file count
+  monthPasteCount Int      @default(0) // pastes created this month
+  monthResetAt    DateTime @default(now()) // when monthly counter resets
+  totalPastes     Int      @default(0) // all-time paste count
+  totalViews      Int      @default(0) // all-time views on user's pastes
+  updatedAt       DateTime @updatedAt
 }

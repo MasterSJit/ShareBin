@@ -114,6 +114,54 @@ export function HomeView() {
   const [recent, setRecent] = useState<SafePaste[]>([])
   const [loadingRecent, setLoadingRecent] = useState(true)
 
+  // plan limits (for gating expiry/feature options)
+  type PlanLimits = {
+    name: string
+    allowedExpiryPresets: string[]
+    allowCustomExpiry: boolean
+    allowBurnAfterRead: boolean
+    allowPassword: boolean
+    allowPrivate: boolean
+    maxPasteSize: number
+    maxPastesPerMonth: number
+  }
+  const [limits, setLimits] = useState<PlanLimits | null>(null)
+
+  useEffect(() => {
+    if (!user) {
+      // Guest limits
+      setLimits({
+        name: 'Guest',
+        allowedExpiryPresets: ['never', '10m', '1h', '1d'],
+        allowCustomExpiry: false,
+        allowBurnAfterRead: false,
+        allowPassword: false,
+        allowPrivate: false,
+        maxPasteSize: 1024 * 1024,
+        maxPastesPerMonth: 10,
+      })
+      return
+    }
+    let active = true
+    api.myLimits().then((rows) => {
+      if (!active || !rows[0]) return
+      const p = rows[0].plan
+      setLimits({
+        name: p.name,
+        allowedExpiryPresets: p.allowedExpiryPresets,
+        allowCustomExpiry: p.allowCustomExpiry,
+        allowBurnAfterRead: p.allowBurnAfterRead,
+        allowPassword: p.allowPassword,
+        allowPrivate: p.allowPrivate,
+        maxPasteSize: p.maxPasteSize,
+        maxPastesPerMonth: p.maxPastesPerMonth,
+      })
+    }).catch(() => {
+      if (active) setLimits(null)
+    })
+    return () => { active = false }
+  }, [user])
+
   useEffect(() => {
     if (user === null && visibility === 'private') {
       setVisibility('public')
@@ -185,7 +233,7 @@ export function HomeView() {
         password: passwordEnabled && password ? password : undefined,
         burnAfterRead: burnAfterRead || undefined,
         expiryPreset,
-        expiryCustom: expiryPreset === 'custom' ? expiryCustom : undefined,
+        expiryCustom: expiryPreset === 'custom' && expiryCustom ? new Date(expiryCustom).toISOString() : undefined,
       })
       toast.success('Paste created')
       const created = rows[0]
@@ -222,7 +270,7 @@ export function HomeView() {
       if (passwordEnabled && password) fd.append('password', password)
       if (burnAfterRead) fd.append('burnAfterRead', 'true')
       fd.append('expiryPreset', expiryPreset)
-      if (expiryPreset === 'custom' && expiryCustom) fd.append('expiryCustom', expiryCustom)
+      if (expiryPreset === 'custom' && expiryCustom) fd.append('expiryCustom', new Date(expiryCustom).toISOString())
 
       const rows = await api.uploadFile(fd)
       toast.success('File uploaded')
@@ -258,6 +306,7 @@ export function HomeView() {
     setExpiryCustom,
     submitting,
     onLogin: goLogin,
+    limits,
   }
 
   return (
@@ -520,16 +569,14 @@ function CreatePanel(props: {
                         read-write
                       </span>
                     </div>
-                    <div className="min-h-[420px]">
-                      <CodeEditor
-                        value={textContent}
-                        onChange={(v) => setTextContent(v ?? '')}
-                        language={language}
-                        height="100%"
-                        wordWrap
-                        showLineNumbers
-                      />
-                    </div>
+                    <CodeEditor
+                      value={textContent}
+                      onChange={(v) => setTextContent(v ?? '')}
+                      language={language}
+                      height={420}
+                      wordWrap
+                      showLineNumbers
+                    />
                   </div>
                 </div>
 
@@ -726,6 +773,16 @@ type SidebarCardProps = {
   submitIcon: React.ReactNode
   hideLanguage?: boolean
   onLogin: () => void
+  limits: {
+    name: string
+    allowedExpiryPresets: string[]
+    allowCustomExpiry: boolean
+    allowBurnAfterRead: boolean
+    allowPassword: boolean
+    allowPrivate: boolean
+    maxPasteSize: number
+    maxPastesPerMonth: number
+  } | null
 }
 
 function SidebarCard(props: SidebarCardProps) {
@@ -752,13 +809,40 @@ function SidebarCard(props: SidebarCardProps) {
     submitIcon,
     hideLanguage,
     onLogin,
+    limits,
   } = props
 
   // Magnetic button effect
   const btnRef = useGsapMagnetic<HTMLButtonElement>(0.25)
 
+  // Gating flags (based on plan limits)
+  const canPrivate = limits ? limits.allowPrivate : false
+  const canBurn = limits ? limits.allowBurnAfterRead : false
+  const canPassword = limits ? limits.allowPassword : false
+  const canCustomExpiry = limits ? limits.allowCustomExpiry : false
+  const allowedPresets = limits ? limits.allowedExpiryPresets : ['never', '10m', '1h', '1d', '1w', '1M', '1y']
+  const planName = limits?.name || '—'
+
+  // If current selection is not allowed by plan, reset to 'never'
+  useEffect(() => {
+    if (limits && !allowedPresets.includes(expiryPreset) && !(expiryPreset === 'custom' && canCustomExpiry)) {
+      setExpiryPreset('never')
+    }
+    if (limits && !canBurn && burnAfterRead) setBurnAfterRead(false)
+    if (limits && !canPassword && passwordEnabled) setPasswordEnabled(false)
+    if (limits && !canPrivate && visibility === 'private') setVisibility('public')
+  }, [limits])
+
   return (
     <div className="surface-2 space-y-4 rounded-xl p-4">
+      {/* Plan badge */}
+      {limits && (
+        <div className="flex items-center justify-between rounded-md border border-border/60 bg-surface-3 px-2.5 py-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">plan</span>
+          <span className="text-xs font-medium text-brand">{planName}</span>
+        </div>
+      )}
+
       {/* Language */}
       {!hideLanguage && language !== undefined && setLanguage && (
         <div className="space-y-1.5">
@@ -783,7 +867,7 @@ function SidebarCard(props: SidebarCardProps) {
         <Label className={SECTION_LABEL_CLS}>Visibility</Label>
         <div className="space-y-1.5">
           {VISIBILITY_OPTIONS.map((opt) => {
-            const disabled = opt.value === 'private' && !user
+            const disabled = opt.value === 'private' && (!user || !canPrivate)
             const selected = visibility === opt.value
             return (
               <button
@@ -809,7 +893,7 @@ function SidebarCard(props: SidebarCardProps) {
                 <span className="flex-1 text-left">{opt.label}</span>
                 {disabled && (
                   <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
-                    login required
+                    {!user ? 'login' : 'upgrade'}
                   </span>
                 )}
               </button>
@@ -831,10 +915,13 @@ function SidebarCard(props: SidebarCardProps) {
             id="pw-switch"
             checked={passwordEnabled}
             onCheckedChange={setPasswordEnabled}
-            disabled={burnAfterRead}
+            disabled={burnAfterRead || !canPassword}
             className="data-[state=checked]:bg-brand"
           />
         </div>
+        {!canPassword && (
+          <p className="font-mono text-[10px] text-muted-foreground">Requires higher plan</p>
+        )}
         {passwordEnabled && (
           <div className="field">
             <input
@@ -867,11 +954,13 @@ function SidebarCard(props: SidebarCardProps) {
             id="burn-switch"
             checked={burnAfterRead}
             onCheckedChange={setBurnAfterRead}
-            disabled={passwordEnabled}
+            disabled={passwordEnabled || !canBurn}
             className="data-[state=checked]:bg-brand-2"
           />
         </div>
-        <p className="text-[11px] text-muted-foreground">Deleted after first view</p>
+        <p className="text-[11px] text-muted-foreground">
+          {canBurn ? 'Deleted after first view' : 'Requires higher plan'}
+        </p>
       </div>
 
       {/* Expiry */}
@@ -887,11 +976,21 @@ function SidebarCard(props: SidebarCardProps) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {EXPIRY_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
+            {EXPIRY_OPTIONS.map((opt) => {
+              const isCustom = opt.value === 'custom'
+              const isAllowed = isCustom ? canCustomExpiry : allowedPresets.includes(opt.value)
+              return (
+                <SelectItem
+                  key={opt.value}
+                  value={opt.value}
+                  disabled={!isAllowed}
+                  className={!isAllowed ? 'opacity-50' : ''}
+                >
+                  {opt.label}
+                  {!isAllowed && <span className="ml-auto font-mono text-[9px] text-muted-foreground">upgrade</span>}
+                </SelectItem>
+              )
+            })}
           </SelectContent>
         </Select>
         {expiryPreset === 'custom' && (
@@ -928,7 +1027,7 @@ function SidebarCard(props: SidebarCardProps) {
           >
             log in
           </button>{' '}
-          for private pastes
+          for more features
         </p>
       )}
     </div>

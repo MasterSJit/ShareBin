@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -49,11 +50,25 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Activity,
+  AlertTriangle,
   ArrowDownCircle,
   ArrowUpCircle,
   Ban,
+  BarChart3,
+  CalendarPlus,
+  Check,
   CheckCircle2,
+  CreditCard,
+  Database,
   Eye,
   FileText,
   Flag,
@@ -63,6 +78,8 @@ import {
   Lock,
   MoreHorizontal,
   Pause,
+  Pencil,
+  Plus,
   Save,
   Search,
   Settings as SettingsIcon,
@@ -70,6 +87,7 @@ import {
   ShieldAlert,
   Trash2,
   Users as UsersIcon,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api-client'
@@ -104,6 +122,131 @@ type Analytics = {
 }
 
 type UserRow = SafeUser & { pasteCount?: number }
+
+type Role = {
+  id: string
+  name: string
+  description: string | null
+  color: string | null
+  isSystem: boolean
+  userCount: number
+  createdAt: string
+  permissions: {
+    id: string
+    name: string
+    description: string | null
+    category: string
+  }[]
+}
+
+type Permission = {
+  id: string
+  name: string
+  description: string | null
+  category: string
+}
+
+type Plan = {
+  id: string
+  name: string
+  description: string | null
+  monthlyPrice: number
+  maxStorageBytes: number
+  maxPasteSize: number
+  maxPastesPerMonth: number
+  allowedExpiryPresets: string[]
+  allowCustomExpiry: boolean
+  allowBurnAfterRead: boolean
+  allowPassword: boolean
+  allowPrivate: boolean
+  allowFileUpload: boolean
+  isSystem: boolean
+  isActive: boolean
+  sortOrder: number
+  createdAt: string
+}
+
+type Subscription = {
+  id: string
+  userId: string
+  planId: string
+  status: string
+  startedAt: string
+  expiresAt: string | null
+  createdAt: string
+  user: { id: string; email: string; displayName: string | null } | null
+  plan: { id: string; name: string; monthlyPrice: number } | null
+}
+
+type UsageRow = {
+  user: {
+    id: string
+    email: string
+    displayName: string | null
+    role: string
+    status: string
+  }
+  subscription: {
+    id: string
+    status: string
+    expiresAt: string | null
+    plan: { id: string; name: string; maxStorageBytes: number }
+  } | null
+  usage: {
+    storageBytes: number
+    pasteCount: number
+    fileCount: number
+    monthPasteCount: number
+    totalPastes: number
+    totalViews: number
+  }
+}
+
+type PlanForm = {
+  name: string
+  description: string
+  monthlyPrice: string
+  maxStorageBytes: string
+  maxPasteSize: string
+  maxPastesPerMonth: string
+  allowedExpiryPresets: string
+  allowCustomExpiry: boolean
+  allowBurnAfterRead: boolean
+  allowPassword: boolean
+  allowPrivate: boolean
+  allowFileUpload: boolean
+  isActive: boolean
+  sortOrder: string
+}
+
+type PlanFlagKey =
+  | 'allowCustomExpiry'
+  | 'allowBurnAfterRead'
+  | 'allowPassword'
+  | 'allowPrivate'
+  | 'allowFileUpload'
+
+const PLAN_FEATURE_FLAGS: { key: PlanFlagKey; label: string }[] = [
+  { key: 'allowCustomExpiry', label: 'Custom expiry' },
+  { key: 'allowBurnAfterRead', label: 'Burn after read' },
+  { key: 'allowPassword', label: 'Password' },
+  { key: 'allowPrivate', label: 'Private' },
+  { key: 'allowFileUpload', label: 'File upload' },
+]
+
+const ROLE_COLOR_MAP: Record<string, string> = {
+  brand: 'bg-brand',
+  'brand-2': 'bg-brand-2',
+  amber: 'bg-amber-500',
+  rose: 'bg-rose-500',
+}
+
+const ROLE_COLOR_OPTIONS: { value: string; label: string }[] = [
+  { value: 'brand', label: 'Lime' },
+  { value: 'brand-2', label: 'Coral' },
+  { value: 'amber', label: 'Amber' },
+  { value: 'rose', label: 'Rose' },
+]
 
 const SCROLLBAR_CLASS =
   '[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30'
@@ -160,6 +303,26 @@ function AdminInner() {
       icon: <FileText className="h-3.5 w-3.5" />,
     },
     {
+      value: 'roles',
+      label: 'Roles',
+      icon: <Shield className="h-3.5 w-3.5" />,
+    },
+    {
+      value: 'plans',
+      label: 'Plans',
+      icon: <CreditCard className="h-3.5 w-3.5" />,
+    },
+    {
+      value: 'subscriptions',
+      label: 'Subscriptions',
+      icon: <CalendarPlus className="h-3.5 w-3.5" />,
+    },
+    {
+      value: 'usage',
+      label: 'Usage',
+      icon: <BarChart3 className="h-3.5 w-3.5" />,
+    },
+    {
       value: 'settings',
       label: 'Settings',
       icon: <SettingsIcon className="h-3.5 w-3.5" />,
@@ -194,7 +357,7 @@ function AdminInner() {
         className="flex flex-col gap-6 lg:flex-row"
       >
         <Reveal variant={fadeUp} delay={0.05}>
-          <TabsList className="grid h-fit w-full grid-cols-5 gap-1 rounded-xl bg-transparent p-0 lg:flex lg:w-56 lg:flex-col lg:grid-cols-1">
+          <TabsList className="grid h-fit w-full grid-cols-3 gap-1 rounded-xl bg-transparent p-0 sm:grid-cols-5 lg:flex lg:w-56 lg:flex-col lg:grid-cols-1">
             {TABS.map((t) => (
               <TabsTrigger
                 key={t.value}
@@ -217,6 +380,18 @@ function AdminInner() {
           </TabsContent>
           <TabsContent value="content" className="mt-0">
             <ContentTab />
+          </TabsContent>
+          <TabsContent value="roles" className="mt-0">
+            <RolesTab />
+          </TabsContent>
+          <TabsContent value="plans" className="mt-0">
+            <PlansTab />
+          </TabsContent>
+          <TabsContent value="subscriptions" className="mt-0">
+            <SubscriptionsTab />
+          </TabsContent>
+          <TabsContent value="usage" className="mt-0">
+            <UsageTab />
           </TabsContent>
           <TabsContent value="settings" className="mt-0">
             <SettingsTab />
@@ -1614,6 +1789,1621 @@ function MetadataCell({ data }: { data: unknown }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  )
+}
+
+/* ---------------- Roles ---------------- */
+
+function RolesTab() {
+  const [roles, setRoles] = useState<Role[]>([])
+  const [permissions, setPermissions] = useState<Permission[]>([])
+  const [loading, setLoading] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editing, setEditing] = useState<Role | null>(null)
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [color, setColor] = useState('brand')
+  const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
+
+  async function fetchRoles() {
+    setLoading(true)
+    try {
+      const [r, p] = await Promise.all([
+        api.admin.listRoles(),
+        api.admin.listPermissions(),
+      ])
+      setRoles(r)
+      setPermissions(p)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to load roles.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchRoles()
+  }, [])
+
+  function openCreate() {
+    setEditing(null)
+    setName('')
+    setDescription('')
+    setColor('brand')
+    setSelectedPerms(new Set())
+    setDialogOpen(true)
+  }
+
+  function openEdit(role: Role) {
+    setEditing(role)
+    setName(role.name)
+    setDescription(role.description || '')
+    setColor(role.color || 'brand')
+    setSelectedPerms(new Set(role.permissions.map((p) => p.id)))
+    setDialogOpen(true)
+  }
+
+  async function save() {
+    if (!name.trim()) {
+      toast.error('Name is required.')
+      return
+    }
+    setBusy(true)
+    try {
+      const body = {
+        name: name.trim(),
+        description: description.trim() || undefined,
+        color,
+        permissionIds: [...selectedPerms],
+      }
+      if (editing) {
+        await api.admin.updateRole(editing.id, body)
+        toast.success('Role updated')
+      } else {
+        await api.admin.createRole(body)
+        toast.success('Role created')
+      }
+      setDialogOpen(false)
+      fetchRoles()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Save failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function doDelete() {
+    if (!deleteTarget) return
+    setBusy(true)
+    try {
+      await api.admin.deleteRole(deleteTarget.id)
+      toast.success('Role deleted')
+      setDeleteTarget(null)
+      fetchRoles()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const permsByCategory = useMemo(() => {
+    const map = new Map<string, Permission[]>()
+    for (const p of permissions) {
+      const arr = map.get(p.category) || []
+      arr.push(p)
+      map.set(p.category, arr)
+    }
+    return [...map.entries()]
+  }, [permissions])
+
+  return (
+    <div className="space-y-4">
+      <Reveal variant={fadeUp}>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="font-mono text-xs text-brand">
+              <span className="text-muted-foreground">{'>'}</span> sudo roles
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+              Roles &amp; Permissions
+            </h2>
+          </div>
+          <Button
+            onClick={openCreate}
+            className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            size="sm"
+          >
+            <Plus className="h-3.5 w-3.5" /> Create Role
+          </Button>
+        </div>
+      </Reveal>
+
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="shimmer surface h-44 rounded-xl" />
+          ))}
+        </div>
+      ) : roles.length === 0 ? (
+        <Reveal variant={fadeUp}>
+          <div className="surface rounded-xl p-10 text-center text-sm text-muted-foreground">
+            No custom roles.
+          </div>
+        </Reveal>
+      ) : (
+        <StaggerGroup
+          stagger={0.05}
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          {roles.map((role) => {
+            const grouped = new Map<string, Permission[]>()
+            for (const p of role.permissions) {
+              const arr = grouped.get(p.category) || []
+              arr.push(p)
+              grouped.set(p.category, arr)
+            }
+            const dotClass =
+              ROLE_COLOR_MAP[role.color || 'brand'] || 'bg-brand'
+            return (
+              <Reveal key={role.id} variant={fadeUp}>
+                <div className="surface lift flex h-full flex-col rounded-xl p-5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-2.5 w-2.5 rounded-full ${dotClass}`}
+                      />
+                      <h3 className="text-base font-semibold">{role.name}</h3>
+                      {role.isSystem && (
+                        <span className="font-mono rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+                          System
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {role.userCount} users
+                    </span>
+                  </div>
+                  {role.description && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {role.description}
+                    </p>
+                  )}
+                  <div className="mt-3 flex-1 space-y-2">
+                    {[...grouped.entries()].map(([cat, perms]) => (
+                      <div key={cat}>
+                        <p className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+                          {cat}
+                        </p>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {perms.map((p) => (
+                            <span
+                              key={p.id}
+                              className="font-mono text-[10px] rounded bg-muted px-1.5 py-0.5"
+                            >
+                              {p.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {role.permissions.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        No permissions assigned.
+                      </p>
+                    )}
+                  </div>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-[11px]"
+                      onClick={() => openEdit(role)}
+                    >
+                      <Pencil className="h-3 w-3" /> Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-[11px] text-destructive hover:text-destructive"
+                      disabled={role.isSystem}
+                      onClick={() => setDeleteTarget(role)}
+                    >
+                      <Trash2 className="h-3 w-3" /> Delete
+                    </Button>
+                  </div>
+                </div>
+              </Reveal>
+            )
+          })}
+        </StaggerGroup>
+      )}
+
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(o) => !busy && setDialogOpen(o)}
+      >
+        <DialogContent className="surface-2 max-h-[85vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit role' : 'Create role'}</DialogTitle>
+            <DialogDescription>
+              {editing
+                ? `Update ${editing.name}`
+                : 'Define a new role and its permissions.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Name">
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="editor"
+                  className={INPUT_CLASS}
+                  disabled={editing?.isSystem}
+                />
+              </Field>
+              <Field label="Color">
+                <Select value={color} onValueChange={setColor}>
+                  <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ROLE_COLOR_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+            <Field label="Description">
+              <Input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Can edit other users' pastes"
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <div>
+              <p className="font-mono mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+                Permissions
+              </p>
+              <div
+                className={`surface-3 max-h-[40vh] space-y-3 overflow-y-auto rounded-md p-3 ${SCROLLBAR_CLASS}`}
+              >
+                {permsByCategory.map(([cat, perms]) => (
+                  <div key={cat}>
+                    <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/80">
+                      {cat}
+                    </p>
+                    <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2">
+                      {perms.map((p) => {
+                        const checked = selectedPerms.has(p.id)
+                        return (
+                          <label
+                            key={p.id}
+                            className="flex cursor-pointer items-start gap-2 rounded p-1 hover:bg-surface-2"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(v) => {
+                                setSelectedPerms((cur) => {
+                                  const next = new Set(cur)
+                                  if (v === true) next.add(p.id)
+                                  else next.delete(p.id)
+                                  return next
+                                })
+                              }}
+                              className="mt-0.5"
+                            />
+                            <span className="min-w-0">
+                              <span className="font-mono block text-[11px] text-foreground">
+                                {p.name}
+                              </span>
+                              {p.description && (
+                                <span className="block text-[10px] text-muted-foreground">
+                                  {p.description}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDialogOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={save}
+              disabled={busy}
+              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              {editing ? 'Save changes' : 'Create role'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && !busy && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete role?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will delete{' '}
+              <span className="font-mono text-foreground">
+                {deleteTarget?.name}
+              </span>
+              . Users with this role will be reassigned to the default user
+              role.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={doDelete}
+              disabled={busy}
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
+
+/* ---------------- Plans ---------------- */
+
+function PlansTab() {
+  const [plans, setPlans] = useState<Plan[]>([])
+  const [loading, setLoading] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editing, setEditing] = useState<Plan | null>(null)
+  const [form, setForm] = useState<PlanForm>({
+    name: '',
+    description: '',
+    monthlyPrice: '0',
+    maxStorageBytes: '52428800',
+    maxPasteSize: '1048576',
+    maxPastesPerMonth: '20',
+    allowedExpiryPresets: 'never,10m,1h,1d',
+    allowCustomExpiry: false,
+    allowBurnAfterRead: true,
+    allowPassword: true,
+    allowPrivate: false,
+    allowFileUpload: true,
+    isActive: true,
+    sortOrder: '0',
+  })
+  const [busy, setBusy] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<Plan | null>(null)
+
+  async function fetchPlans() {
+    setLoading(true)
+    try {
+      const r = await api.admin.listPlans()
+      setPlans([...r].sort((a, b) => a.sortOrder - b.sortOrder))
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to load plans.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPlans()
+  }, [])
+
+  function openCreate() {
+    setEditing(null)
+    setForm({
+      name: '',
+      description: '',
+      monthlyPrice: '0',
+      maxStorageBytes: '52428800',
+      maxPasteSize: '1048576',
+      maxPastesPerMonth: '20',
+      allowedExpiryPresets: 'never,10m,1h,1d',
+      allowCustomExpiry: false,
+      allowBurnAfterRead: true,
+      allowPassword: true,
+      allowPrivate: false,
+      allowFileUpload: true,
+      isActive: true,
+      sortOrder: '0',
+    })
+    setDialogOpen(true)
+  }
+
+  function openEdit(plan: Plan) {
+    setEditing(plan)
+    setForm({
+      name: plan.name,
+      description: plan.description || '',
+      monthlyPrice: String(plan.monthlyPrice),
+      maxStorageBytes: String(plan.maxStorageBytes),
+      maxPasteSize: String(plan.maxPasteSize),
+      maxPastesPerMonth: String(plan.maxPastesPerMonth),
+      allowedExpiryPresets: plan.allowedExpiryPresets.join(','),
+      allowCustomExpiry: plan.allowCustomExpiry,
+      allowBurnAfterRead: plan.allowBurnAfterRead,
+      allowPassword: plan.allowPassword,
+      allowPrivate: plan.allowPrivate,
+      allowFileUpload: plan.allowFileUpload,
+      isActive: plan.isActive,
+      sortOrder: String(plan.sortOrder),
+    })
+    setDialogOpen(true)
+  }
+
+  function setFlag(key: PlanFlagKey, value: boolean) {
+    setForm((cur) => ({ ...cur, [key]: value }))
+  }
+
+  async function save() {
+    if (!form.name.trim()) {
+      toast.error('Name is required.')
+      return
+    }
+    setBusy(true)
+    try {
+      const body = {
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+        monthlyPrice: Number(form.monthlyPrice) || 0,
+        maxStorageBytes: Number(form.maxStorageBytes) || 0,
+        maxPasteSize: Number(form.maxPasteSize) || 0,
+        maxPastesPerMonth: Number(form.maxPastesPerMonth) || 0,
+        allowedExpiryPresets: form.allowedExpiryPresets
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        allowCustomExpiry: form.allowCustomExpiry,
+        allowBurnAfterRead: form.allowBurnAfterRead,
+        allowPassword: form.allowPassword,
+        allowPrivate: form.allowPrivate,
+        allowFileUpload: form.allowFileUpload,
+        isActive: form.isActive,
+        sortOrder: Number(form.sortOrder) || 0,
+      }
+      if (editing) {
+        await api.admin.updatePlan(editing.id, body)
+        toast.success('Plan updated')
+      } else {
+        await api.admin.createPlan(body)
+        toast.success('Plan created')
+      }
+      setDialogOpen(false)
+      fetchPlans()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Save failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function doDelete() {
+    if (!deleteTarget) return
+    setBusy(true)
+    try {
+      await api.admin.deletePlan(deleteTarget.id)
+      toast.success('Plan deleted')
+      setDeleteTarget(null)
+      fetchPlans()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Reveal variant={fadeUp}>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="font-mono text-xs text-brand">
+              <span className="text-muted-foreground">{'>'}</span> sudo plans
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+              Subscription Plans
+            </h2>
+          </div>
+          <Button
+            onClick={openCreate}
+            className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            size="sm"
+          >
+            <Plus className="h-3.5 w-3.5" /> Create Plan
+          </Button>
+        </div>
+      </Reveal>
+
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="shimmer surface h-64 rounded-xl" />
+          ))}
+        </div>
+      ) : plans.length === 0 ? (
+        <Reveal variant={fadeUp}>
+          <div className="surface rounded-xl p-10 text-center text-sm text-muted-foreground">
+            No plans configured.
+          </div>
+        </Reveal>
+      ) : (
+        <StaggerGroup
+          stagger={0.05}
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          {plans.map((plan) => (
+            <Reveal key={plan.id} variant={fadeUp}>
+              <div className="surface lift flex h-full flex-col rounded-xl p-5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold">{plan.name}</h3>
+                    {plan.isSystem && (
+                      <span className="font-mono rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+                        System
+                      </span>
+                    )}
+                  </div>
+                  <span
+                    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                      plan.isActive
+                        ? 'bg-brand/15 text-brand'
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {plan.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+                <p className="mt-1 text-2xl font-semibold text-brand">
+                  {plan.monthlyPrice > 0
+                    ? `$${plan.monthlyPrice.toFixed(2)}/mo`
+                    : 'Free'}
+                </p>
+                {plan.description && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {plan.description}
+                  </p>
+                )}
+                <dl className="font-mono mt-3 space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">storage</dt>
+                    <dd>{formatBytes(plan.maxStorageBytes)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">max paste</dt>
+                    <dd>{formatBytes(plan.maxPasteSize)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">per month</dt>
+                    <dd>{plan.maxPastesPerMonth}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">expiry</dt>
+                    <dd className="max-w-[160px] truncate">
+                      {plan.allowedExpiryPresets.join(', ') || '\u2014'}
+                    </dd>
+                  </div>
+                </dl>
+                <div className="mt-3 grid grid-cols-2 gap-1">
+                  {PLAN_FEATURE_FLAGS.map((f) => {
+                    const on = plan[f.key] as boolean
+                    return (
+                      <span
+                        key={f.key}
+                        className="inline-flex items-center gap-1 text-[10px]"
+                      >
+                        {on ? (
+                          <Check className="h-3 w-3 text-brand" />
+                        ) : (
+                          <X className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        <span
+                          className={
+                            on ? 'text-foreground' : 'text-muted-foreground'
+                          }
+                        >
+                          {f.label}
+                        </span>
+                      </span>
+                    )
+                  })}
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-[11px]"
+                    onClick={() => openEdit(plan)}
+                  >
+                    <Pencil className="h-3 w-3" /> Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-[11px] text-destructive hover:text-destructive"
+                    disabled={plan.isSystem}
+                    onClick={() => setDeleteTarget(plan)}
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </Button>
+                </div>
+              </div>
+            </Reveal>
+          ))}
+        </StaggerGroup>
+      )}
+
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(o) => !busy && setDialogOpen(o)}
+      >
+        <DialogContent className="surface-2 max-h-[85vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit plan' : 'Create plan'}</DialogTitle>
+            <DialogDescription>
+              {editing
+                ? `Update ${editing.name}`
+                : 'Define a new subscription plan.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Name">
+                <Input
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm((cur) => ({ ...cur, name: e.target.value }))
+                  }
+                  className={INPUT_CLASS}
+                  disabled={editing?.isSystem}
+                />
+              </Field>
+              <Field label="Monthly price ($)">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.monthlyPrice}
+                  onChange={(e) =>
+                    setForm((cur) => ({
+                      ...cur,
+                      monthlyPrice: e.target.value,
+                    }))
+                  }
+                  className={INPUT_CLASS}
+                />
+              </Field>
+            </div>
+            <Field label="Description">
+              <Input
+                value={form.description}
+                onChange={(e) =>
+                  setForm((cur) => ({
+                    ...cur,
+                    description: e.target.value,
+                  }))
+                }
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Max storage (B)">
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.maxStorageBytes}
+                  onChange={(e) =>
+                    setForm((cur) => ({
+                      ...cur,
+                      maxStorageBytes: e.target.value,
+                    }))
+                  }
+                  className={INPUT_CLASS}
+                />
+              </Field>
+              <Field label="Max paste size (B)">
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.maxPasteSize}
+                  onChange={(e) =>
+                    setForm((cur) => ({
+                      ...cur,
+                      maxPasteSize: e.target.value,
+                    }))
+                  }
+                  className={INPUT_CLASS}
+                />
+              </Field>
+              <Field label="Max pastes / month">
+                <Input
+                  type="number"
+                  min={0}
+                  value={form.maxPastesPerMonth}
+                  onChange={(e) =>
+                    setForm((cur) => ({
+                      ...cur,
+                      maxPastesPerMonth: e.target.value,
+                    }))
+                  }
+                  className={INPUT_CLASS}
+                />
+              </Field>
+            </div>
+            <Field label="Allowed expiry presets (comma-separated)">
+              <Input
+                value={form.allowedExpiryPresets}
+                onChange={(e) =>
+                  setForm((cur) => ({
+                    ...cur,
+                    allowedExpiryPresets: e.target.value,
+                  }))
+                }
+                className={`${INPUT_CLASS} font-mono text-xs`}
+                placeholder="never,10m,1h,1d,1w,1M,1y"
+              />
+            </Field>
+            <Field label="Sort order">
+              <Input
+                type="number"
+                min={0}
+                value={form.sortOrder}
+                onChange={(e) =>
+                  setForm((cur) => ({ ...cur, sortOrder: e.target.value }))
+                }
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <div className="surface-3 grid gap-2 rounded-md p-3 sm:grid-cols-2">
+              {PLAN_FEATURE_FLAGS.map((f) => (
+                <label
+                  key={f.key}
+                  className="flex items-center justify-between gap-2 text-xs"
+                >
+                  <span className="text-muted-foreground">{f.label}</span>
+                  <Switch
+                    checked={form[f.key] as boolean}
+                    onCheckedChange={(v) => setFlag(f.key, v)}
+                  />
+                </label>
+              ))}
+              <label className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-muted-foreground">Active</span>
+                <Switch
+                  checked={form.isActive}
+                  onCheckedChange={(v) =>
+                    setForm((cur) => ({ ...cur, isActive: v }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDialogOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={save}
+              disabled={busy}
+              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              {editing ? 'Save changes' : 'Create plan'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && !busy && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will delete{' '}
+              <span className="font-mono text-foreground">
+                {deleteTarget?.name}
+              </span>
+              . Subscribers will be reassigned to the Free plan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={doDelete}
+              disabled={busy}
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
+
+/* ---------------- Subscriptions ---------------- */
+
+function SubscriptionsTab() {
+  const [rows, setRows] = useState<Subscription[]>([])
+  const [expiring, setExpiring] = useState<Subscription[]>([])
+  const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [plans, setPlans] = useState<Plan[]>([])
+  const [userQuery, setUserQuery] = useState('')
+  const [userId, setUserId] = useState('')
+  const [planId, setPlanId] = useState('')
+  const [expiresAt, setExpiresAt] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function fetchSubs() {
+    setLoading(true)
+    try {
+      const [r, e] = await Promise.all([
+        api.admin.listSubscriptions(
+          statusFilter === 'all' ? undefined : statusFilter,
+        ),
+        api.admin.listExpiringSubscriptions(),
+      ])
+      setRows(r)
+      setExpiring(e)
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : 'Failed to load subscriptions.',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchSubs()
+  }, [statusFilter])
+
+  async function openAssign() {
+    try {
+      const [u, p] = await Promise.all([
+        api.admin.listUsers(),
+        api.admin.listPlans(),
+      ])
+      setUsers(u)
+      setPlans([...p].sort((a, b) => a.sortOrder - b.sortOrder))
+      setUserId('')
+      setPlanId(p[0]?.id || '')
+      setExpiresAt('')
+      setUserQuery('')
+      setDialogOpen(true)
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : 'Failed to load users/plans.',
+      )
+    }
+  }
+
+  async function assign() {
+    if (!userId) {
+      toast.error('Pick a user.')
+      return
+    }
+    if (!planId) {
+      toast.error('Pick a plan.')
+      return
+    }
+    setBusy(true)
+    try {
+      await api.admin.assignSubscription({
+        userId,
+        planId,
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+      })
+      toast.success('Subscription assigned')
+      setDialogOpen(false)
+      fetchSubs()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Assign failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function extend(sub: Subscription, days: number) {
+    const now = Date.now()
+    let base: number
+    if (sub.expiresAt) {
+      const e = new Date(sub.expiresAt).getTime()
+      base = e > now ? e : now
+    } else {
+      base = now
+    }
+    const next = new Date(base + days * 86400000).toISOString()
+    try {
+      await api.admin.updateSubscription(sub.id, {
+        status: 'active',
+        expiresAt: next,
+      })
+      toast.success(`Extended by ${days} days`)
+      fetchSubs()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Extend failed.')
+    }
+  }
+
+  async function cancel(sub: Subscription) {
+    try {
+      await api.admin.cancelSubscription(sub.id)
+      toast.success('Subscription cancelled')
+      fetchSubs()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Cancel failed.')
+    }
+  }
+
+  async function changePlan(sub: Subscription) {
+    try {
+      const all = await api.admin.listPlans()
+      const active = all.filter((p) => p.isActive)
+      const next = active.find((p) => p.id !== sub.planId) || active[0]
+      if (!next) {
+        toast.error('No active plans available.')
+        return
+      }
+      await api.admin.updateSubscription(sub.id, {
+        planId: next.id,
+        status: 'active',
+      })
+      toast.success(`Plan changed to ${next.name}`)
+      fetchSubs()
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : 'Change plan failed.',
+      )
+    }
+  }
+
+  const filteredUsers = useMemo(() => {
+    if (!userQuery.trim()) return users.slice(0, 50)
+    const q = userQuery.toLowerCase()
+    return users
+      .filter(
+        (u) =>
+          u.email.toLowerCase().includes(q) ||
+          (u.displayName || '').toLowerCase().includes(q),
+      )
+      .slice(0, 50)
+  }, [users, userQuery])
+
+  return (
+    <div className="space-y-4">
+      <Reveal variant={fadeUp}>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="font-mono text-xs text-brand">
+              <span className="text-muted-foreground">{'>'}</span> sudo
+              subscriptions
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+              Subscriptions
+            </h2>
+          </div>
+          <Button
+            onClick={openAssign}
+            className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            size="sm"
+          >
+            <Plus className="h-3.5 w-3.5" /> Assign
+          </Button>
+        </div>
+      </Reveal>
+
+      {expiring.length > 0 && (
+        <Reveal variant={fadeUp}>
+          <div className="surface rounded-xl border-brand-2/30 p-4">
+            <div className="flex items-center gap-2 text-brand-2">
+              <AlertTriangle className="h-4 w-4" />
+              <p className="font-mono text-[11px] uppercase tracking-wider">
+                {expiring.length} subscriptions expiring within 7 days
+              </p>
+            </div>
+            <ul className="mt-2 space-y-1">
+              {expiring.slice(0, 8).map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-center justify-between gap-2 text-xs"
+                >
+                  <span className="truncate">
+                    <span className="font-medium">
+                      {s.user?.email || 'unknown'}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {' '}
+                      &mdash; {s.plan?.name || '\u2014'}
+                    </span>
+                  </span>
+                  <span className="font-mono text-muted-foreground">
+                    {s.expiresAt ? formatDate(s.expiresAt) : '\u2014'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Reveal>
+      )}
+
+      <Reveal variant={fadeUp}>
+        <div className="flex flex-wrap gap-1.5">
+          {['all', 'active', 'expired', 'cancelled'].map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`font-mono rounded-md px-2.5 py-1 text-[10px] uppercase tracking-wider transition-colors ${
+                statusFilter === s
+                  ? 'bg-brand text-brand-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </Reveal>
+
+      <Reveal variant={fadeUp} delay={0.05}>
+        <div
+          className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}
+        >
+          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    User
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Plan
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Status
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Started
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Expires
+                  </TableHead>
+                  <TableHead className="px-4" />
+                </TableRow>
+              </TableHeader>
+              <motion.tbody
+                variants={staggerContainer(0.04)}
+                initial="hidden"
+                animate="show"
+              >
+                {loading ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="px-4 py-12 text-center text-sm text-muted-foreground"
+                    >
+                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+                      Loading subscriptions&hellip;
+                    </TableCell>
+                  </TableRow>
+                ) : rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="px-4 py-12 text-center text-sm text-muted-foreground"
+                    >
+                      No subscriptions found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rows.map((s) => (
+                    <motion.tr
+                      key={s.id}
+                      variants={fadeUp}
+                      className="border-border border-b transition-colors hover:bg-surface-3"
+                    >
+                      <TableCell className="px-4 py-3">
+                        <p className="text-sm font-medium">
+                          {s.user?.email || 'unknown'}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {s.user?.displayName || '\u2014'}
+                        </p>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <p className="text-sm">{s.plan?.name || '\u2014'}</p>
+                        <p className="font-mono text-[10px] text-muted-foreground">
+                          {s.plan && s.plan.monthlyPrice > 0
+                            ? `$${s.plan.monthlyPrice.toFixed(2)}/mo`
+                            : 'Free'}
+                        </p>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <SubStatusBadge status={s.status} />
+                      </TableCell>
+                      <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                        {formatRelativeTime(s.startedAt)}
+                      </TableCell>
+                      <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                        {s.expiresAt
+                          ? formatRelativeTime(s.expiresAt)
+                          : 'Lifetime'}
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem
+                              onClick={() => extend(s, 30)}
+                            >
+                              <CalendarPlus className="h-3.5 w-3.5" /> Extend 30
+                              days
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => changePlan(s)}>
+                              <CreditCard className="h-3.5 w-3.5" /> Change plan
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              disabled={s.status === 'cancelled'}
+                              onClick={() => cancel(s)}
+                            >
+                              <Ban className="h-3.5 w-3.5" /> Cancel
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </motion.tr>
+                  ))
+                )}
+              </motion.tbody>
+            </Table>
+          </div>
+        </div>
+      </Reveal>
+
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(o) => !busy && setDialogOpen(o)}
+      >
+        <DialogContent className="surface-2 max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Assign subscription</DialogTitle>
+            <DialogDescription>
+              Grant a plan to a user. Leave expiry blank for lifetime.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Field label="User">
+              <Input
+                value={userQuery}
+                onChange={(e) => setUserQuery(e.target.value)}
+                placeholder="Search by email or name&hellip;"
+                className={INPUT_CLASS}
+              />
+              <div
+                className={`surface-3 mt-1.5 max-h-44 overflow-y-auto rounded-md ${SCROLLBAR_CLASS}`}
+              >
+                {filteredUsers.length === 0 ? (
+                  <p className="px-3 py-2 text-[11px] text-muted-foreground">
+                    No users.
+                  </p>
+                ) : (
+                  filteredUsers.map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => {
+                        setUserId(u.id)
+                        setUserQuery(u.email)
+                      }}
+                      className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-surface-2 ${
+                        userId === u.id ? 'bg-brand/10 text-brand' : ''
+                      }`}
+                    >
+                      <span className="truncate">
+                        <span className="font-medium">{u.email}</span>
+                        {u.displayName && (
+                          <span className="text-muted-foreground">
+                            {' '}
+                            &mdash; {u.displayName}
+                          </span>
+                        )}
+                      </span>
+                      {userId === u.id && (
+                        <Check className="h-3 w-3 shrink-0" />
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </Field>
+            <Field label="Plan">
+              <Select value={planId} onValueChange={setPlanId}>
+                <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                  <SelectValue placeholder="Select plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  {plans.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}{' '}
+                      {p.monthlyPrice > 0
+                        ? `($${p.monthlyPrice.toFixed(2)}/mo)`
+                        : '(Free)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Expires at (optional, blank = lifetime)">
+              <Input
+                type="datetime-local"
+                value={expiresAt}
+                onChange={(e) => setExpiresAt(e.target.value)}
+                className={INPUT_CLASS}
+              />
+            </Field>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDialogOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={assign}
+              disabled={busy}
+              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Plus className="h-3.5 w-3.5" />
+              )}
+              Assign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function SubStatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase()
+  if (s === 'active')
+    return (
+      <span className="inline-flex items-center rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+        {status}
+      </span>
+    )
+  if (s === 'cancelled')
+    return (
+      <span className="inline-flex items-center rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+        {status}
+      </span>
+    )
+  if (s === 'expired')
+    return (
+      <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+        {status}
+      </span>
+    )
+  return (
+    <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      {status}
+    </span>
+  )
+}
+
+/* ---------------- Usage ---------------- */
+
+function UsageTab() {
+  const [rows, setRows] = useState<UsageRow[]>([])
+  const [planMap, setPlanMap] = useState<Map<string, Plan>>(new Map())
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    Promise.all([
+      api.admin.listUsage().catch((err) => {
+        toast.error(
+          err instanceof ApiError ? err.message : 'Failed to load usage.',
+        )
+        return [] as UsageRow[]
+      }),
+      api.admin.listPlans().catch(() => [] as Plan[]),
+    ])
+      .then(([u, plans]) => {
+        if (!active) return
+        setRows(u)
+        const m = new Map<string, Plan>()
+        for (const p of plans) m.set(p.id, p)
+        setPlanMap(m)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const sorted = useMemo(
+    () => [...rows].sort((a, b) => b.usage.storageBytes - a.usage.storageBytes),
+    [rows],
+  )
+
+  const kpis = useMemo(() => {
+    const totalStorage = rows.reduce(
+      (s, r) => s + r.usage.storageBytes,
+      0,
+    )
+    const activeUsers = rows.filter((r) => r.user.status === 'active').length
+    const subscribers = rows.filter(
+      (r) => r.subscription && r.subscription.status === 'active',
+    ).length
+    const revenue = rows.reduce((s, r) => {
+      if (r.subscription && r.subscription.status === 'active') {
+        return s + (planMap.get(r.subscription.plan.id)?.monthlyPrice || 0)
+      }
+      return s
+    }, 0)
+    return { totalStorage, activeUsers, subscribers, revenue }
+  }, [rows, planMap])
+
+  return (
+    <div className="space-y-4">
+      <Reveal variant={fadeUp}>
+        <div>
+          <p className="font-mono text-xs text-brand">
+            <span className="text-muted-foreground">{'>'}</span> sudo usage
+          </p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+            Usage Analytics
+          </h2>
+        </div>
+      </Reveal>
+
+      <StaggerGroup
+        stagger={0.06}
+        className="grid grid-cols-2 gap-4 lg:grid-cols-4"
+      >
+        <Reveal variant={scaleIn}>
+          <KpiCard
+            label="Total storage"
+            value={kpis.totalStorage}
+            format={(n) => formatBytes(n)}
+            icon={<Database className="h-4 w-4" />}
+            accent
+          />
+        </Reveal>
+        <Reveal variant={scaleIn}>
+          <KpiCard
+            label="Active users"
+            value={kpis.activeUsers}
+            icon={<UsersIcon className="h-4 w-4" />}
+          />
+        </Reveal>
+        <Reveal variant={scaleIn}>
+          <KpiCard
+            label="Subscribers"
+            value={kpis.subscribers}
+            icon={<CreditCard className="h-4 w-4" />}
+          />
+        </Reveal>
+        <Reveal variant={scaleIn}>
+          <KpiCard
+            label="Monthly revenue"
+            value={kpis.revenue}
+            format={(n) => `$${n.toFixed(2)}`}
+            icon={<BarChart3 className="h-4 w-4" />}
+            accent
+          />
+        </Reveal>
+      </StaggerGroup>
+
+      <Reveal variant={fadeUp} delay={0.05}>
+        <div
+          className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}
+        >
+          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    User
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Plan
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Storage
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Pastes
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Files
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    This month
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Views
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <motion.tbody
+                variants={staggerContainer(0.04)}
+                initial="hidden"
+                animate="show"
+              >
+                {loading ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="px-4 py-12 text-center text-sm text-muted-foreground"
+                    >
+                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+                      Loading usage&hellip;
+                    </TableCell>
+                  </TableRow>
+                ) : sorted.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="px-4 py-12 text-center text-sm text-muted-foreground"
+                    >
+                      No usage data.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  sorted.map((r) => {
+                    const plan = r.subscription?.plan
+                    const planMeta = plan ? planMap.get(plan.id) : undefined
+                    const maxStorage =
+                      plan?.maxStorageBytes || planMeta?.maxStorageBytes || 0
+                    const pct =
+                      maxStorage > 0
+                        ? Math.min(
+                            100,
+                            (r.usage.storageBytes / maxStorage) * 100,
+                          )
+                        : 0
+                    const over =
+                      maxStorage > 0 && r.usage.storageBytes > maxStorage
+                    const maxPastes = planMeta?.maxPastesPerMonth || 0
+                    return (
+                      <motion.tr
+                        key={r.user.id}
+                        variants={fadeUp}
+                        className="border-border border-b transition-colors hover:bg-surface-3"
+                      >
+                        <TableCell className="px-4 py-3">
+                          <p className="text-sm font-medium">
+                            {r.user.displayName || r.user.email}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {r.user.email}
+                          </p>
+                          <div className="mt-1">
+                            <RoleBadge
+                              role={r.user.role as SafeUser['role']}
+                            />
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <span className="text-sm">
+                            {plan?.name || 'Free'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <div className="min-w-[120px]">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-mono">
+                                {formatBytes(r.usage.storageBytes)}
+                              </span>
+                              {maxStorage > 0 && (
+                                <span className="font-mono text-muted-foreground">
+                                  / {formatBytes(maxStorage)}
+                                </span>
+                              )}
+                            </div>
+                            {maxStorage > 0 && (
+                              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    over ? 'bg-destructive' : 'bg-brand'
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-xs">
+                          {r.usage.totalPastes}
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-xs">
+                          {r.usage.fileCount}
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-xs">
+                          {r.usage.monthPasteCount}
+                          {maxPastes > 0 ? ` / ${maxPastes}` : ''}
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-xs">
+                          {r.usage.totalViews}
+                        </TableCell>
+                      </motion.tr>
+                    )
+                  })
+                )}
+              </motion.tbody>
+            </Table>
+          </div>
+        </div>
+      </Reveal>
     </div>
   )
 }

@@ -21,6 +21,7 @@ import {
 } from '@/lib/paste-utils'
 import { toSafePaste, invalidatePaste, invalidateUserPastes, findPaste } from '@/lib/paste-access'
 import { getStorage, buildStorageKey } from '@/lib/storage'
+import { getUserLimits, isExpiryAllowed, checkMonthlyLimit, checkStorageLimit, incrementMonthlyPastes } from '@/lib/rbac'
 
 // PUT /api/file — multipart upload
 export async function PUT(req: NextRequest) {
@@ -28,6 +29,12 @@ export async function PUT(req: NextRequest) {
 
   const guestOk = await getSetting<boolean>('guestPostingEnabled')
   if (!guestOk && !session) return forbidden('Guest uploads are disabled. Please log in.')
+
+  // ---- Plan limits ----
+  const limits = await getUserLimits(session?.userId ?? null)
+  if (!limits.allowFileUpload && !session) {
+    return forbidden('File uploads require login and a paid plan')
+  }
 
   const ip = req.headers.get('x-forwarded-for') || 'unknown'
   if (rateLimitHit(`file:${ip}`, 20, 60_000)) {
@@ -44,24 +51,51 @@ export async function PUT(req: NextRequest) {
   const file = form.get('file')
   if (!(file instanceof File)) return badRequest('file field is required')
 
-  const maxSize = await getSetting<number>('maxFileSizeBytes')
-  if (file.size > maxSize) {
-    return badRequest(`File too large (max ${maxSize} bytes)`)
+  // Per-file size limit from plan
+  if (file.size > limits.maxPasteSize) {
+    return forbidden(`File too large (max ${limits.maxPasteSize} bytes on ${limits.planName} plan)`)
+  }
+
+  // Storage limit check
+  const canStore = await checkStorageLimit(session?.userId ?? null, file.size, limits)
+  if (!canStore) {
+    return forbidden(`Storage limit exceeded (${limits.maxStorageBytes} bytes on ${limits.planName} plan)`)
+  }
+
+  // Monthly paste limit
+  const canCreate = await checkMonthlyLimit(session?.userId ?? null, limits)
+  if (!canCreate) {
+    return tooManyRequests(`Monthly paste limit reached (${limits.maxPastesPerMonth} on ${limits.planName} plan)`)
   }
 
   const visibility = (VISIBILITY as readonly string[]).includes(String(form.get('visibility') || ''))
     ? String(form.get('visibility'))
     : 'public'
-  if (visibility === 'private' && !session) return forbidden('Private files require login')
+  if (visibility === 'private') {
+    if (!session) return forbidden('Private files require login')
+    if (!limits.allowPrivate) return forbidden(`Private files require a Pro plan or higher (current: ${limits.planName})`)
+  }
 
   const burnAfterRead = form.get('burnAfterRead') === 'true'
   const password = form.get('password')
+  if (burnAfterRead && !limits.allowBurnAfterRead) {
+    return forbidden(`Burn-after-read requires a higher plan (current: ${limits.planName})`)
+  }
+  if (password && !limits.allowPassword) {
+    return forbidden(`Password protection requires a higher plan (current: ${limits.planName})`)
+  }
   if (burnAfterRead && password) {
     return badRequest('Burn-after-read cannot combine with password protection')
   }
 
   const expiryPreset = String(form.get('expiryPreset') || 'never')
   const expiryCustom = form.get('expiryCustom') ? String(form.get('expiryCustom')) : undefined
+  if (!isExpiryAllowed(expiryPreset, limits)) {
+    if (expiryPreset === 'custom') {
+      return forbidden(`Custom expiry requires a Pro plan or higher (current: ${limits.planName})`)
+    }
+    return forbidden(`Expiry "${expiryPreset}" is not available on your plan (current: ${limits.planName})`)
+  }
   const expiresAt = computeExpiry(expiryPreset, expiryCustom)
   if (expiryPreset === 'custom' && !expiresAt) return badRequest('Invalid custom expiry')
   if (expiresAt && expiresAt.getTime() < Date.now()) return badRequest('Expiry in the past')
@@ -96,7 +130,10 @@ export async function PUT(req: NextRequest) {
     include: { owner: true },
   })
 
-  if (session) invalidateUserPastes(session.userId)
+  if (session) {
+    await incrementMonthlyPastes(session.userId)
+    invalidateUserPastes(session.userId)
+  }
   return created('File uploaded successfully', [toSafePaste(paste, { includeContent: false })])
 }
 

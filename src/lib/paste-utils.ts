@@ -40,7 +40,15 @@ export function computeExpiry(preset: string, customIso?: string): Date | null {
   if (preset === 'never') return null
   if (preset === 'custom') {
     if (!customIso) return null
-    const d = new Date(customIso)
+    // If the client sent a full ISO string (with Z or offset), new Date handles it.
+    // If it's a bare datetime-local string (YYYY-MM-DDTHH:MM), treat it as UTC
+    // to match the client's new Date(...).toISOString() conversion.
+    const normalized = customIso.includes('Z') || customIso.includes('+')
+      ? customIso
+      : customIso.length === 16
+        ? customIso + ':00Z' // YYYY-MM-DDTHH:MM → add seconds + Z
+        : customIso.endsWith('Z') ? customIso : customIso + 'Z'
+    const d = new Date(normalized)
     if (isNaN(d.getTime())) return null
     return d
   }

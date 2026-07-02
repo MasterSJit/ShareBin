@@ -15,6 +15,7 @@ type Props = {
   onChange?: (v: string | undefined) => void
   language?: string
   readOnly?: boolean
+  /** Height in px (number) or CSS string. Defaults to 420px — NOT '100%' */
   height?: string | number
   wordWrap?: boolean
   showLineNumbers?: boolean
@@ -25,7 +26,7 @@ export function CodeEditor({
   onChange,
   language = 'plaintext',
   readOnly = false,
-  height = '100%',
+  height = 420,
   wordWrap = true,
   showLineNumbers = true,
 }: Props) {
@@ -37,10 +38,13 @@ export function CodeEditor({
     editor.updateOptions({ readOnly })
   }
 
+  // Normalize height to a CSS string the Monaco container can use directly.
+  const heightCss = typeof height === 'number' ? `${height}px` : height
+
   return (
-    <div className="h-full w-full overflow-hidden">
+    <div style={{ height: heightCss, width: '100%', overflow: 'hidden' }}>
       <MonacoEditor
-        height={height}
+        height={heightCss}
         language={language === 'plaintext' ? 'plaintext' : language}
         theme={monacoTheme}
         value={value}

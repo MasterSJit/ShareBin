@@ -121,6 +121,26 @@ export const api = {
   // Languages
   listLanguages: () => request<{ language: string; count: number }>('GET', '/api/languages'),
 
+  // My plan & limits
+  myLimits: () =>
+    request<{
+      user: { id: string; email: string; displayName: string | null; role: string; roleId: string | null }
+      plan: {
+        name: string; planId: string; maxStorageBytes: number; maxPasteSize: number
+        maxPastesPerMonth: number; allowedExpiryPresets: string[]
+        allowCustomExpiry: boolean; allowBurnAfterRead: boolean; allowPassword: boolean
+        allowPrivate: boolean; allowFileUpload: boolean
+      }
+      subscription: {
+        id: string; status: string; startedAt: string; expiresAt: string | null
+        planName: string; monthlyPrice: number
+      } | null
+      usage: {
+        storageBytes: number; pasteCount: number; fileCount: number
+        monthPasteCount: number; totalPastes: number; totalViews: number
+      }
+    }>('GET', '/api/me/limits'),
+
   // Admin
   admin: {
     listUsers: (q?: string, status?: string) => {
@@ -166,5 +186,70 @@ export const api = {
         topLanguages: { language: string; count: number }[]
         traffic: { date: string; count: number }[]
       }>('GET', '/api/admin/analytics'),
+
+    // RBAC
+    listRoles: () =>
+      request<{
+        id: string; name: string; description: string | null; color: string | null;
+        isSystem: boolean; userCount: number; createdAt: string;
+        permissions: { id: string; name: string; description: string | null; category: string }[]
+      }>('GET', '/api/admin/role'),
+    createRole: (body: { name: string; description?: string; color?: string; permissionIds?: string[] }) =>
+      request<{ id: string; name: string }>('PUT', '/api/admin/role', { body }),
+    updateRole: (id: string, patch: Record<string, unknown>) =>
+      request<{ id: string; name: string }>('PATCH', '/api/admin/role', { body: { id, ...patch } }),
+    deleteRole: (id: string) =>
+      request<unknown>('DELETE', '/api/admin/role', { body: { id } }),
+
+    listPermissions: () =>
+      request<{ id: string; name: string; description: string | null; category: string }>('GET', '/api/admin/permission'),
+
+    // Plans
+    listPlans: () =>
+      request<{
+        id: string; name: string; description: string | null; monthlyPrice: number;
+        maxStorageBytes: number; maxPasteSize: number; maxPastesPerMonth: number;
+        allowedExpiryPresets: string[]; allowCustomExpiry: boolean; allowBurnAfterRead: boolean;
+        allowPassword: boolean; allowPrivate: boolean; allowFileUpload: boolean;
+        isSystem: boolean; isActive: boolean; sortOrder: number; createdAt: string;
+      }>('GET', '/api/admin/plan'),
+    createPlan: (body: Record<string, unknown>) =>
+      request<unknown>('PUT', '/api/admin/plan', { body }),
+    updatePlan: (id: string, patch: Record<string, unknown>) =>
+      request<unknown>('PATCH', '/api/admin/plan', { body: { id, ...patch } }),
+    deletePlan: (id: string) =>
+      request<unknown>('DELETE', '/api/admin/plan', { body: { id } }),
+
+    // Subscriptions
+    listSubscriptions: (status?: string) => {
+      const q = status ? `?status=${status}` : ''
+      return request<{
+        id: string; userId: string; planId: string; status: string;
+        startedAt: string; expiresAt: string | null; createdAt: string;
+        user: { id: string; email: string; displayName: string | null } | null;
+        plan: { id: string; name: string; monthlyPrice: number } | null;
+      }>('GET', `/api/admin/subscription${q}`)
+    },
+    listExpiringSubscriptions: () =>
+      request<{
+        id: string; userId: string; planId: string; status: string;
+        startedAt: string; expiresAt: string | null; createdAt: string;
+        user: { id: string; email: string; displayName: string | null } | null;
+        plan: { id: string; name: string; monthlyPrice: number } | null;
+      }>('GET', '/api/admin/subscription?expiring=1'),
+    assignSubscription: (body: { userId: string; planId: string; expiresAt?: string | null }) =>
+      request<unknown>('PUT', '/api/admin/subscription', { body }),
+    updateSubscription: (id: string, patch: Record<string, unknown>) =>
+      request<unknown>('PATCH', '/api/admin/subscription', { body: { id, ...patch } }),
+    cancelSubscription: (id: string) =>
+      request<unknown>('DELETE', '/api/admin/subscription', { body: { id } }),
+
+    // Usage
+    listUsage: () =>
+      request<{
+        user: { id: string; email: string; displayName: string | null; role: string; status: string }
+        subscription: { id: string; status: string; expiresAt: string | null; plan: { id: string; name: string; maxStorageBytes: number } } | null
+        usage: { storageBytes: number; pasteCount: number; fileCount: number; monthPasteCount: number; totalPastes: number; totalViews: number }
+      }>('GET', '/api/admin/usage'),
   },
 }

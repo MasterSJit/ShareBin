@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { CodeEditor } from '@/components/editor/code-editor'
 import { PasteCard } from '@/components/paste-card'
+import { FilePreview } from '@/components/file-preview'
 import { api, ApiError, markUnlocked } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
 import { formatBytes, formatRelativeTime, formatDate } from '@/lib/ui-utils'
@@ -463,37 +464,25 @@ export function PasteView({ idOrSlug }: { idOrSlug: string }) {
                     read-only
                   </span>
                 </div>
-                <div className="min-h-[500px]">
-                  <CodeEditor
-                    value={paste.textContent || ''}
-                    language={paste.language}
-                    readOnly
-                    height="600px"
-                  />
-                </div>
+                <CodeEditor
+                  value={paste.textContent || ''}
+                  language={paste.language}
+                  readOnly
+                  height={600}
+                />
               </div>
             </Reveal>
           ) : (
             <Reveal variant={scaleIn} delay={0.1}>
-              <div className="surface flex flex-col items-center gap-4 rounded-2xl p-8 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand/15 text-brand">
-                  <FileText className="h-8 w-8" />
-                </div>
-                <div className="space-y-1">
-                  <p className="font-medium">{paste.originalFileName || `/${paste.slug}`}</p>
-                  <p className="font-mono text-xs text-muted-foreground">
-                    {formatBytes(paste.fileSizeBytes)}
-                    {paste.mimeType ? ` · ${paste.mimeType}` : ''}
-                  </p>
-                </div>
-                <a
-                  href={api.fileDownloadUrl(paste.slug)}
-                  download
-                  className="btn-shine inline-flex items-center gap-2 rounded-md bg-brand px-6 py-2.5 text-sm font-medium text-brand-foreground hover:bg-brand"
-                >
-                  <Download className="h-4 w-4" /> Download
-                </a>
-              </div>
+              <FilePreview
+                slug={paste.slug}
+                fileName={paste.originalFileName}
+                mimeType={paste.mimeType}
+                fileSizeBytes={paste.fileSizeBytes ?? null}
+                hasPassword={paste.hasPassword}
+                isOwner={!!user && user.id === paste.ownerId}
+                isBurned={paste.isBurned}
+              />
             </Reveal>
           )}
         </div>
