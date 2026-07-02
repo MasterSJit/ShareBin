@@ -80,6 +80,7 @@ import {
   Pause,
   Pencil,
   Plus,
+  RotateCcw,
   Save,
   Search,
   Settings as SettingsIcon,
@@ -255,6 +256,86 @@ const BRAND_LIME = 'oklch(0.8 0.2 125)'
 
 const INPUT_CLASS =
   'bg-surface-3 border-border rounded-md focus-visible:ring-brand text-sm'
+
+/** Languages offered in the Edit-paste dialog (compact subset). */
+const EDIT_LANGUAGES: { value: string; label: string }[] = [
+  { value: 'plaintext', label: 'Plain Text' },
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'typescript', label: 'TypeScript' },
+  { value: 'python', label: 'Python' },
+  { value: 'java', label: 'Java' },
+  { value: 'csharp', label: 'C#' },
+  { value: 'cpp', label: 'C++' },
+  { value: 'go', label: 'Go' },
+  { value: 'rust', label: 'Rust' },
+  { value: 'ruby', label: 'Ruby' },
+  { value: 'php', label: 'PHP' },
+  { value: 'sql', label: 'SQL' },
+  { value: 'bash', label: 'Bash / Shell' },
+  { value: 'html', label: 'HTML' },
+  { value: 'css', label: 'CSS' },
+  { value: 'json', label: 'JSON' },
+  { value: 'yaml', label: 'YAML' },
+  { value: 'markdown', label: 'Markdown' },
+  { value: 'dockerfile', label: 'Dockerfile' },
+]
+
+const EDIT_EXPIRY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'never', label: 'Never' },
+  { value: '10m', label: '10 minutes' },
+  { value: '1h', label: '1 hour' },
+  { value: '1d', label: '1 day' },
+  { value: '1w', label: '1 week' },
+  { value: '1M', label: '1 month' },
+  { value: '1y', label: '1 year' },
+  { value: 'custom', label: 'Custom…' },
+]
+
+const PRESET_MS: Record<string, number> = {
+  '10m': 10 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '1d': 24 * 60 * 60 * 1000,
+  '1w': 7 * 24 * 60 * 60 * 1000,
+  '1M': 30 * 24 * 60 * 60 * 1000,
+  '1y': 365 * 24 * 60 * 60 * 1000,
+}
+
+type EditForm = {
+  title: string
+  description: string
+  tags: string
+  language: string
+  visibility: 'public' | 'unlisted' | 'private'
+  textContent: string
+  textFetchOk: boolean
+  textLoading: boolean
+  viewCount: string
+  expiryPreset: string
+  expiryCustom: string
+}
+
+/** Reverse-engineer the expiry preset from a paste's expiresAt vs createdAt. */
+function deriveExpiryFromPaste(p: SafePaste): {
+  preset: string
+  custom: string
+} {
+  if (!p.expiresAt) return { preset: 'never', custom: '' }
+  const created = new Date(p.createdAt).getTime()
+  const expires = new Date(p.expiresAt).getTime()
+  const diffMs = expires - created
+  for (const [value, ms] of Object.entries(PRESET_MS)) {
+    if (Math.abs(diffMs - ms) < 60 * 1000) {
+      return { preset: value, custom: '' }
+    }
+  }
+  // Custom — fill datetime-local in local time.
+  const dt = new Date(p.expiresAt)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const custom = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(
+    dt.getDate(),
+  )}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
+  return { preset: 'custom', custom }
+}
 
 export function AdminView() {
   const user = useAppStore((s) => s.user)
@@ -614,6 +695,9 @@ function OverviewTab() {
           </div>
         </Reveal>
       </div>
+
+      {/* Trending */}
+      <TrendingWidget />
     </div>
   )
 }
@@ -663,6 +747,120 @@ function ChartTooltip({
       <p className="font-mono text-muted-foreground">{label}</p>
       <p className="mt-0.5 font-semibold text-brand">{payload[0].value} pastes</p>
     </div>
+  )
+}
+
+/* ---------------- Trending Widget (Overview) ---------------- */
+
+function TrendingWidget() {
+  const goView = useAppStore((s) => s.goView)
+  const [days, setDays] = useState<number>(7)
+  const [rows, setRows] = useState<SafePaste[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    api.admin
+      .trending(5, days)
+      .then((r) => {
+        if (active) setRows(r)
+      })
+      .catch((err) => {
+        if (active)
+          toast.error(
+            err instanceof ApiError
+              ? err.message
+              : 'Failed to load trending pastes.',
+          )
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [days])
+
+  const ranges: { value: number; label: string }[] = [
+    { value: 7, label: '7d' },
+    { value: 30, label: '30d' },
+    { value: 0, label: 'All' },
+  ]
+
+  return (
+    <Reveal variant={fadeUp}>
+      <div className="surface rounded-xl p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            <Flame className="h-3.5 w-3.5 text-brand-2" />
+            trending now
+          </h3>
+          <div className="flex items-center gap-1 rounded-md bg-surface-3 p-0.5">
+            {ranges.map((r) => (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => setDays(r.value)}
+                className={`rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+                  days === r.value
+                    ? 'bg-brand/15 text-brand'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {loading ? (
+          <div className="space-y-2">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="shimmer h-11 rounded-md" />
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No trending pastes yet.
+          </p>
+        ) : (
+          <motion.div
+            variants={staggerContainer(0.06)}
+            initial="hidden"
+            animate="show"
+            className="space-y-0.5"
+          >
+            {rows.map((p, i) => (
+              <motion.button
+                key={p.id}
+                variants={fadeUp}
+                type="button"
+                onClick={() => goView(p.slug)}
+                className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-surface-3"
+              >
+                <span className="font-mono w-5 text-center text-sm font-semibold text-brand">
+                  {i + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {p.title || `/${p.slug}`}
+                  </p>
+                  <p className="font-mono text-[10px] text-muted-foreground">
+                    {formatRelativeTime(p.createdAt)}
+                  </p>
+                </div>
+                <span className="font-mono shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {p.language}
+                </span>
+                <span className="flex shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground">
+                  <Eye className="h-3 w-3" />
+                  {p.viewCount}
+                </span>
+              </motion.button>
+            ))}
+          </motion.div>
+        )}
+      </div>
+    </Reveal>
   )
 }
 
@@ -1073,6 +1271,15 @@ function ContentTab() {
   const [expiredOnly, setExpiredOnly] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<SafePaste | null>(null)
   const [busy, setBusy] = useState(false)
+  // Edit dialog state
+  const [editTarget, setEditTarget] = useState<SafePaste | null>(null)
+  const [editForm, setEditForm] = useState<EditForm | null>(null)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  // View-count dialog state
+  const [viewCountTarget, setViewCountTarget] = useState<SafePaste | null>(null)
+  const [viewCountInput, setViewCountInput] = useState('')
+  const [viewCountSaving, setViewCountSaving] = useState(false)
 
   async function fetchPastes() {
     setLoading(true)
@@ -1123,6 +1330,157 @@ function ContentTab() {
       setConfirmDelete(null)
     }
   }
+
+  /** Silent refetch (no loading flicker) — used after mutations. */
+  async function refreshList() {
+    try {
+      const r = await api.admin.listPastes({
+        q: q || undefined,
+        flagged: flaggedOnly || undefined,
+        expired: expiredOnly || undefined,
+      })
+      setRows(r)
+    } catch {
+      /* silent — mutation toast already surfaced */
+    }
+  }
+
+  async function openEdit(p: SafePaste) {
+    const { preset, custom } = deriveExpiryFromPaste(p)
+    setEditTarget(p)
+    setEditForm({
+      title: p.title || '',
+      description: p.description || '',
+      tags: p.tags.join(', '),
+      language: p.language || 'plaintext',
+      visibility: p.visibility,
+      textContent: '',
+      textFetchOk: false,
+      textLoading: false,
+      viewCount: String(p.viewCount),
+      expiryPreset: preset,
+      expiryCustom: custom,
+    })
+    // For safe text pastes, fetch existing content so the admin can edit it.
+    // Skip for expired/burned/burn-after-read (fetching would hard-delete or burn).
+    if (p.contentType === 'text' && !p.isExpired && !p.isBurned && !p.burnAfterRead) {
+      setEditLoading(true)
+      setEditForm((f) => (f ? { ...f, textLoading: true } : f))
+      try {
+        const res = await api.getPaste(p.slug)
+        const full = res[0]
+        setEditForm((f) =>
+          f
+            ? {
+                ...f,
+                textContent: full?.textContent ?? '',
+                textFetchOk: true,
+                textLoading: false,
+              }
+            : f,
+        )
+      } catch {
+        setEditForm((f) => (f ? { ...f, textFetchOk: false, textLoading: false } : f))
+      } finally {
+        setEditLoading(false)
+      }
+    } else if (p.contentType === 'text') {
+      // Unsafe to fetch — leave textContent empty; save only sends if user typed.
+      setEditForm((f) => (f ? { ...f, textFetchOk: false, textLoading: false } : f))
+    } else {
+      // File paste — no text content field.
+      setEditForm((f) => (f ? { ...f, textFetchOk: true, textLoading: false } : f))
+    }
+  }
+
+  function closeEdit() {
+    setEditTarget(null)
+    setEditForm(null)
+  }
+
+  async function saveEdit() {
+    if (!editTarget || !editForm) return
+    setEditSaving(true)
+    try {
+      const patch: Record<string, unknown> = {
+        title: editForm.title.trim(),
+        description: editForm.description.trim(),
+        tags: editForm.tags.trim(),
+        language: editForm.language,
+        visibility: editForm.visibility,
+        viewCount: Math.max(0, parseInt(editForm.viewCount, 10) || 0),
+      }
+      // textContent: send if we loaded it (even empty = explicit clear),
+      // OR if user typed new content into an unloaded field.
+      if (editTarget.contentType === 'text') {
+        if (editForm.textFetchOk || editForm.textContent.length > 0) {
+          patch.textContent = editForm.textContent
+        }
+      }
+      // Expiry
+      if (editForm.expiryPreset === 'never') {
+        patch.expiresAt = null
+      } else if (editForm.expiryPreset === 'custom') {
+        if (editForm.expiryCustom) {
+          const d = new Date(editForm.expiryCustom)
+          if (!isNaN(d.getTime())) patch.expiresAt = d.toISOString()
+        }
+      } else {
+        const ms = PRESET_MS[editForm.expiryPreset]
+        if (ms) patch.expiresAt = new Date(Date.now() + ms).toISOString()
+      }
+      await api.admin.editPaste(editTarget.id, patch)
+      toast.success('Paste updated')
+      closeEdit()
+      await refreshList()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  async function resetViews(p: SafePaste) {
+    try {
+      await api.admin.editPaste(p.id, { resetViews: true })
+      toast.success('View count reset to 0')
+      await refreshList()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Reset failed.')
+    }
+  }
+
+  function openViewCountEdit(p: SafePaste) {
+    setViewCountTarget(p)
+    setViewCountInput(String(p.viewCount))
+  }
+
+  function closeViewCountEdit() {
+    setViewCountTarget(null)
+    setViewCountInput('')
+  }
+
+  async function saveViewCount() {
+    if (!viewCountTarget) return
+    const n = Math.max(0, parseInt(viewCountInput, 10) || 0)
+    setViewCountSaving(true)
+    try {
+      await api.admin.editPaste(viewCountTarget.id, { viewCount: n })
+      toast.success(`View count set to ${n}`)
+      closeViewCountEdit()
+      await refreshList()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+    } finally {
+      setViewCountSaving(false)
+    }
+  }
+
+  // Default view hides expired + burned pastes (backend hard-deletes on access,
+  // but some may linger). "Expired only" toggle surfaces them via ?expired=1.
+  const displayedRows = expiredOnly
+    ? rows
+    : rows.filter((p) => !p.isExpired && !p.isBurned)
 
   return (
     <div className="space-y-4">
@@ -1209,14 +1567,18 @@ function ContentTab() {
                       Loading pastes…
                     </TableCell>
                   </TableRow>
-                ) : rows.length === 0 ? (
+                ) : displayedRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                      No pastes found.
+                      {expiredOnly
+                        ? 'No expired pastes found.'
+                        : flaggedOnly
+                          ? 'No flagged pastes found.'
+                          : 'No pastes found.'}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  rows.map((p) => (
+                  displayedRows.map((p) => (
                     <motion.tr
                       key={p.id}
                       variants={fadeUp}
@@ -1289,7 +1651,19 @@ function ContentTab() {
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem onClick={() => openEdit(p)}>
+                              <Pencil className="h-3.5 w-3.5" /> Edit details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => resetViews(p)}>
+                              <RotateCcw className="h-3.5 w-3.5" /> Reset views
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => openViewCountEdit(p)}
+                            >
+                              <Eye className="h-3.5 w-3.5" /> Edit view count
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() =>
                                 patchPaste(p, { isFlagged: !p.isFlagged })
@@ -1357,6 +1731,299 @@ function ContentTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit dialog */}
+      <Dialog
+        open={!!editTarget}
+        onOpenChange={(o) => !o && !editSaving && closeEdit()}
+      >
+        <DialogContent className="surface-2 max-h-[85vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit paste</DialogTitle>
+            <DialogDescription>
+              Update details for{' '}
+              <span className="font-mono text-foreground">
+                {editTarget?.slug}
+              </span>
+              {editTarget?.contentType === 'file' &&
+                editTarget.originalFileName && (
+                  <> · {editTarget.originalFileName}</>
+                )}
+            </DialogDescription>
+          </DialogHeader>
+          {editForm && editTarget && (
+            <div className="space-y-4 py-2">
+              {/* Title */}
+              <div className="space-y-1.5">
+                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Title
+                </Label>
+                <Input
+                  value={editForm.title}
+                  onChange={(e) =>
+                    setEditForm((f) => (f ? { ...f, title: e.target.value } : f))
+                  }
+                  placeholder="Untitled paste"
+                  className={INPUT_CLASS}
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1.5">
+                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Description
+                </Label>
+                <Textarea
+                  value={editForm.description}
+                  onChange={(e) =>
+                    setEditForm((f) => (f ? { ...f, description: e.target.value } : f))
+                  }
+                  placeholder="Brief description (optional)"
+                  rows={2}
+                  className={INPUT_CLASS}
+                />
+              </div>
+
+              {/* Tags + Language */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                    Tags
+                  </Label>
+                  <Input
+                    value={editForm.tags}
+                    onChange={(e) =>
+                      setEditForm((f) => (f ? { ...f, tags: e.target.value } : f))
+                    }
+                    placeholder="react, typescript, web"
+                    className={INPUT_CLASS}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                    Language
+                  </Label>
+                  <Select
+                    value={editForm.language}
+                    onValueChange={(v) =>
+                      setEditForm((f) => (f ? { ...f, language: v } : f))
+                    }
+                  >
+                    <SelectTrigger className={INPUT_CLASS}>
+                      <SelectValue placeholder="Language" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!EDIT_LANGUAGES.some(
+                        (l) => l.value === editForm.language,
+                      ) && (
+                        <SelectItem value={editForm.language}>
+                          {editForm.language}
+                        </SelectItem>
+                      )}
+                      {EDIT_LANGUAGES.map((l) => (
+                        <SelectItem key={l.value} value={l.value}>
+                          {l.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Visibility */}
+              <div className="space-y-1.5">
+                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Visibility
+                </Label>
+                <Select
+                  value={editForm.visibility}
+                  onValueChange={(v) =>
+                    setEditForm((f) =>
+                      f
+                        ? {
+                            ...f,
+                            visibility: v as 'public' | 'unlisted' | 'private',
+                          }
+                        : f,
+                    )
+                  }
+                >
+                  <SelectTrigger className={INPUT_CLASS}>
+                    <SelectValue placeholder="Visibility" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="public">Public</SelectItem>
+                    <SelectItem value="unlisted">Unlisted</SelectItem>
+                    <SelectItem value="private">Private</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Text content (text pastes only) */}
+              {editTarget.contentType === 'text' && (
+                <div className="space-y-1.5">
+                  <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                    Content
+                    {editForm.textLoading ? (
+                      <span className="ml-1 text-brand">(loading…)</span>
+                    ) : !editForm.textFetchOk ? (
+                      <span className="ml-1 text-muted-foreground/70">
+                        (enter new to replace)
+                      </span>
+                    ) : null}
+                  </Label>
+                  <Textarea
+                    value={editForm.textContent}
+                    onChange={(e) =>
+                      setEditForm((f) => (f ? { ...f, textContent: e.target.value } : f))
+                    }
+                    placeholder={
+                      editForm.textFetchOk
+                        ? 'Paste content…'
+                        : 'Type new content to replace existing…'
+                    }
+                    rows={7}
+                    disabled={editForm.textLoading}
+                    className={`${INPUT_CLASS} font-mono text-xs`}
+                  />
+                </div>
+              )}
+
+              {/* View count */}
+              <div className="space-y-1.5">
+                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                  View count
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editForm.viewCount}
+                    onChange={(e) =>
+                      setEditForm((f) => (f ? { ...f, viewCount: e.target.value } : f))
+                    }
+                    className={INPUT_CLASS}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() =>
+                      setEditForm((f) => (f ? { ...f, viewCount: '0' } : f))
+                    }
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" /> Reset
+                  </Button>
+                </div>
+              </div>
+
+              {/* Expiry */}
+              <div className="space-y-1.5">
+                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                  Expiry
+                </Label>
+                <Select
+                  value={editForm.expiryPreset}
+                  onValueChange={(v) =>
+                    setEditForm((f) => (f ? { ...f, expiryPreset: v } : f))
+                  }
+                >
+                  <SelectTrigger className={INPUT_CLASS}>
+                    <SelectValue placeholder="Expiry" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EDIT_EXPIRY_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {editForm.expiryPreset === 'custom' && (
+                  <Input
+                    type="datetime-local"
+                    value={editForm.expiryCustom}
+                    onChange={(e) =>
+                      setEditForm((f) => (f ? { ...f, expiryCustom: e.target.value } : f))
+                    }
+                    className={INPUT_CLASS}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={closeEdit} disabled={editSaving}>
+              Cancel
+            </Button>
+            <Button
+              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+              onClick={saveEdit}
+              disabled={editSaving || editLoading}
+            >
+              {editSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View count dialog */}
+      <Dialog
+        open={!!viewCountTarget}
+        onOpenChange={(o) => !o && !viewCountSaving && closeViewCountEdit()}
+      >
+        <DialogContent className="surface-2 max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit view count</DialogTitle>
+            <DialogDescription>
+              Set the view count for{' '}
+              <span className="font-mono text-foreground">
+                {viewCountTarget?.slug}
+              </span>
+              .
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+              View count
+            </Label>
+            <Input
+              type="number"
+              min={0}
+              value={viewCountInput}
+              onChange={(e) => setViewCountInput(e.target.value)}
+              className={INPUT_CLASS}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={closeViewCountEdit}
+              disabled={viewCountSaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+              onClick={saveViewCount}
+              disabled={viewCountSaving}
+            >
+              {viewCountSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

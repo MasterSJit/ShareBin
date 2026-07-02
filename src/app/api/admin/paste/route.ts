@@ -63,6 +63,12 @@ export async function PATCH(req: NextRequest) {
     expiresAt?: string | null
     forceExpire?: boolean
     title?: string
+    description?: string
+    tags?: string
+    language?: string
+    textContent?: string
+    viewCount?: number
+    resetViews?: boolean
   } = {}
   try {
     body = await req.json()
@@ -84,6 +90,14 @@ export async function PATCH(req: NextRequest) {
     patch.visibility = body.visibility
   }
   if (typeof body.title === 'string') patch.title = body.title.slice(0, 255) || null
+  if (typeof body.description === 'string') patch.description = body.description.slice(0, 1000) || null
+  if (typeof body.tags === 'string') patch.tags = body.tags.slice(0, 500) || null
+  if (typeof body.language === 'string') patch.language = body.language.slice(0, 50)
+  if (typeof body.textContent === 'string' && paste.contentType === 'text') {
+    patch.textContent = body.textContent.slice(0, 5 * 1024 * 1024)
+  }
+  if (typeof body.viewCount === 'number' && body.viewCount >= 0) patch.viewCount = body.viewCount
+  if (body.resetViews) patch.viewCount = 0
   if (body.forceExpire) patch.expiresAt = new Date(Date.now() - 1000)
   else if (body.expiresAt === null) patch.expiresAt = null
   else if (body.expiresAt) {
@@ -118,18 +132,9 @@ export async function DELETE(req: NextRequest) {
     where: { OR: [{ id }, { slug: id }] },
   })
   if (!paste) return notFound('Paste not found')
-  if (paste.isDeleted) return gone('Already deleted')
 
-  await db.paste.update({ where: { id: paste.id }, data: { isDeleted: true } })
-  invalidatePaste(paste.slug)
-  invalidatePaste(paste.id)
-  if (paste.storageKey && paste.contentType === 'file') {
-    await getStorage().delete(paste.storageKey)
-  }
-  await auditLog(session.userId, 'delete_paste', 'paste', paste.id, {
-    slug: paste.slug,
-    title: paste.title,
-    contentType: paste.contentType,
-  })
-  return ok('Paste deleted', [])
+  // Hard-delete (storage file + record + grants + audit log)
+  const { hardDeletePaste } = await import('@/lib/cleanup')
+  await hardDeletePaste(paste.id, 'admin', session.userId)
+  return ok('Paste permanently deleted', [])
 }

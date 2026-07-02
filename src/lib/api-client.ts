@@ -251,5 +251,13 @@ export const api = {
         subscription: { id: string; status: string; expiresAt: string | null; plan: { id: string; name: string; maxStorageBytes: number } } | null
         usage: { storageBytes: number; pasteCount: number; fileCount: number; monthPasteCount: number; totalPastes: number; totalViews: number }
       }>('GET', '/api/admin/usage'),
+
+    // Trending
+    trending: (limit = 10, days = 7) =>
+      request<SafePaste>('GET', `/api/admin/trending?limit=${limit}&days=${days}`),
+
+    // Content CRUD (enhanced — supports title/desc/tags/language/textContent/viewCount/resetViews)
+    editPaste: (id: string, patch: Record<string, unknown>) =>
+      request<SafePaste>('PATCH', '/api/admin/paste', { body: { id, ...patch } }),
   },
 }

@@ -1,0 +1,2002 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useMemo, useState, type ReactNode } from 'react'
+     4→import { motion } from 'framer-motion'
+     5→import {
+     6→  Area,
+     7→  AreaChart,
+     8→  ResponsiveContainer,
+     9→  Tooltip,
+    10→  XAxis,
+    11→  YAxis,
+    12→} from 'recharts'
+    13→import { Button } from '@/components/ui/button'
+    14→import { Checkbox } from '@/components/ui/checkbox'
+    15→import { Input } from '@/components/ui/input'
+    16→import { Label } from '@/components/ui/label'
+    17→import { Switch } from '@/components/ui/switch'
+    18→import { Textarea } from '@/components/ui/textarea'
+    19→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    20→import {
+    21→  Table,
+    22→  TableBody,
+    23→  TableCell,
+    24→  TableHead,
+    25→  TableHeader,
+    26→  TableRow,
+    27→} from '@/components/ui/table'
+    28→import {
+    29→  Select,
+    30→  SelectContent,
+    31→  SelectItem,
+    32→  SelectTrigger,
+    33→  SelectValue,
+    34→} from '@/components/ui/select'
+    35→import {
+    36→  DropdownMenu,
+    37→  DropdownMenuContent,
+    38→  DropdownMenuItem,
+    39→  DropdownMenuSeparator,
+    40→  DropdownMenuTrigger,
+    41→} from '@/components/ui/dropdown-menu'
+    42→import {
+    43→  AlertDialog,
+    44→  AlertDialogAction,
+    45→  AlertDialogCancel,
+    46→  AlertDialogContent,
+    47→  AlertDialogDescription,
+    48→  AlertDialogFooter,
+    49→  AlertDialogHeader,
+    50→  AlertDialogTitle,
+    51→} from '@/components/ui/alert-dialog'
+    52→import {
+    53→  Dialog,
+    54→  DialogContent,
+    55→  DialogDescription,
+    56→  DialogFooter,
+    57→  DialogHeader,
+    58→  DialogTitle,
+    59→} from '@/components/ui/dialog'
+    60→import {
+    61→  Activity,
+    62→  AlertTriangle,
+    63→  ArrowDownCircle,
+    64→  ArrowUpCircle,
+    65→  Ban,
+    66→  BarChart3,
+    67→  CalendarPlus,
+    68→  Check,
+    69→  CheckCircle2,
+    70→  CreditCard,
+    71→  Database,
+    72→  Eye,
+    73→  FileText,
+    74→  Flag,
+    75→  Flame,
+    76→  HardDrive,
+    77→  Loader2,
+    78→  Lock,
+    79→  MoreHorizontal,
+    80→  Pause,
+    81→  Pencil,
+    82→  Plus,
+    83→  Save,
+    84→  Search,
+    85→  Settings as SettingsIcon,
+    86→  Shield,
+    87→  ShieldAlert,
+    88→  Trash2,
+    89→  Users as UsersIcon,
+    90→  X,
+    91→} from 'lucide-react'
+    92→import { toast } from 'sonner'
+    93→import { api, ApiError } from '@/lib/api-client'
+    94→import { useAppStore } from '@/lib/store'
+    95→import {
+    96→  EXPIRY_OPTIONS,
+    97→  formatBytes,
+    98→  formatDate,
+    99→  formatRelativeTime,
+   100→} from '@/lib/ui-utils'
+   101→import {
+   102→  AnimatedNumber,
+   103→  Reveal,
+   104→  StaggerGroup,
+   105→  fadeUp,
+   106→  scaleIn,
+   107→  staggerContainer,
+   108→} from '@/components/motion-helpers'
+   109→import type { SafeAuditLog, SafePaste, SafeUser } from '@/lib/types'
+   110→
+   111→type Analytics = {
+   112→  totalUsers: number
+   113→  totalPastes: number
+   114→  totalFiles: number
+   115→  totalActivePastes: number
+   116→  flaggedCount: number
+   117→  burnedCount: number
+   118→  totalViews: number
+   119→  storageUsedBytes: number
+   120→  topLanguages: { language: string; count: number }[]
+   121→  traffic: { date: string; count: number }[]
+   122→}
+   123→
+   124→type UserRow = SafeUser & { pasteCount?: number }
+   125→
+   126→type Role = {
+   127→  id: string
+   128→  name: string
+   129→  description: string | null
+   130→  color: string | null
+   131→  isSystem: boolean
+   132→  userCount: number
+   133→  createdAt: string
+   134→  permissions: {
+   135→    id: string
+   136→    name: string
+   137→    description: string | null
+   138→    category: string
+   139→  }[]
+   140→}
+   141→
+   142→type Permission = {
+   143→  id: string
+   144→  name: string
+   145→  description: string | null
+   146→  category: string
+   147→}
+   148→
+   149→type Plan = {
+   150→  id: string
+   151→  name: string
+   152→  description: string | null
+   153→  monthlyPrice: number
+   154→  maxStorageBytes: number
+   155→  maxPasteSize: number
+   156→  maxPastesPerMonth: number
+   157→  allowedExpiryPresets: string[]
+   158→  allowCustomExpiry: boolean
+   159→  allowBurnAfterRead: boolean
+   160→  allowPassword: boolean
+   161→  allowPrivate: boolean
+   162→  allowFileUpload: boolean
+   163→  isSystem: boolean
+   164→  isActive: boolean
+   165→  sortOrder: number
+   166→  createdAt: string
+   167→}
+   168→
+   169→type Subscription = {
+   170→  id: string
+   171→  userId: string
+   172→  planId: string
+   173→  status: string
+   174→  startedAt: string
+   175→  expiresAt: string | null
+   176→  createdAt: string
+   177→  user: { id: string; email: string; displayName: string | null } | null
+   178→  plan: { id: string; name: string; monthlyPrice: number } | null
+   179→}
+   180→
+   181→type UsageRow = {
+   182→  user: {
+   183→    id: string
+   184→    email: string
+   185→    displayName: string | null
+   186→    role: string
+   187→    status: string
+   188→  }
+   189→  subscription: {
+   190→    id: string
+   191→    status: string
+   192→    expiresAt: string | null
+   193→    plan: { id: string; name: string; maxStorageBytes: number }
+   194→  } | null
+   195→  usage: {
+   196→    storageBytes: number
+   197→    pasteCount: number
+   198→    fileCount: number
+   199→    monthPasteCount: number
+   200→    totalPastes: number
+   201→    totalViews: number
+   202→  }
+   203→}
+   204→
+   205→type PlanForm = {
+   206→  name: string
+   207→  description: string
+   208→  monthlyPrice: string
+   209→  maxStorageBytes: string
+   210→  maxPasteSize: string
+   211→  maxPastesPerMonth: string
+   212→  allowedExpiryPresets: string
+   213→  allowCustomExpiry: boolean
+   214→  allowBurnAfterRead: boolean
+   215→  allowPassword: boolean
+   216→  allowPrivate: boolean
+   217→  allowFileUpload: boolean
+   218→  isActive: boolean
+   219→  sortOrder: string
+   220→}
+   221→
+   222→type PlanFlagKey =
+   223→  | 'allowCustomExpiry'
+   224→  | 'allowBurnAfterRead'
+   225→  | 'allowPassword'
+   226→  | 'allowPrivate'
+   227→  | 'allowFileUpload'
+   228→
+   229→const PLAN_FEATURE_FLAGS: { key: PlanFlagKey; label: string }[] = [
+   230→  { key: 'allowCustomExpiry', label: 'Custom expiry' },
+   231→  { key: 'allowBurnAfterRead', label: 'Burn after read' },
+   232→  { key: 'allowPassword', label: 'Password' },
+   233→  { key: 'allowPrivate', label: 'Private' },
+   234→  { key: 'allowFileUpload', label: 'File upload' },
+   235→]
+   236→
+   237→const ROLE_COLOR_MAP: Record<string, string> = {
+   238→  brand: 'bg-brand',
+   239→  'brand-2': 'bg-brand-2',
+   240→  amber: 'bg-amber-500',
+   241→  rose: 'bg-rose-500',
+   242→}
+   243→
+   244→const ROLE_COLOR_OPTIONS: { value: string; label: string }[] = [
+   245→  { value: 'brand', label: 'Lime' },
+   246→  { value: 'brand-2', label: 'Coral' },
+   247→  { value: 'amber', label: 'Amber' },
+   248→  { value: 'rose', label: 'Rose' },
+   249→]
+   250→
+   251→const SCROLLBAR_CLASS =
+   252→  '[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30'
+   253→
+   254→const BRAND_LIME = 'oklch(0.8 0.2 125)'
+   255→
+   256→const INPUT_CLASS =
+   257→  'bg-surface-3 border-border rounded-md focus-visible:ring-brand text-sm'
+   258→
+   259→export function AdminView() {
+   260→  const user = useAppStore((s) => s.user)
+   261→  const goHome = useAppStore((s) => s.goHome)
+   262→
+   263→  if (!user || user.role !== 'admin') {
+   264→    return (
+   265→      <div className="mx-auto max-w-6xl px-4 py-8 md:py-10 sm:px-6">
+   266→        <Reveal variant={fadeUp} className="mx-auto mt-12 max-w-md">
+   267→          <div className="surface rounded-2xl p-12 text-center">
+   268→            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
+   269→              <Lock className="h-6 w-6" />
+   270→            </div>
+   271→            <h2 className="text-lg font-semibold tracking-tight">Admin only</h2>
+   272→            <p className="mt-1 text-sm text-muted-foreground">
+   273→              You don&apos;t have permission to access the admin panel.
+   274→            </p>
+   275→            <Button
+   276→              onClick={goHome}
+   277→              className="btn-shine mt-5 bg-brand text-brand-foreground hover:bg-brand/90"
+   278→            >
+   279→              Back to home
+   280→            </Button>
+   281→          </div>
+   282→        </Reveal>
+   283→      </div>
+   284→    )
+   285→  }
+   286→
+   287→  return <AdminInner />
+   288→}
+   289→
+   290→function AdminInner() {
+   291→  const [tab, setTab] = useState('overview')
+   292→
+   293→  const TABS: { value: string; label: string; icon: ReactNode }[] = [
+   294→    {
+   295→      value: 'overview',
+   296→      label: 'Overview',
+   297→      icon: <Activity className="h-3.5 w-3.5" />,
+   298→    },
+   299→    { value: 'users', label: 'Users', icon: <UsersIcon className="h-3.5 w-3.5" /> },
+   300→    {
+   301→      value: 'content',
+   302→      label: 'Content',
+   303→      icon: <FileText className="h-3.5 w-3.5" />,
+   304→    },
+   305→    {
+   306→      value: 'roles',
+   307→      label: 'Roles',
+   308→      icon: <Shield className="h-3.5 w-3.5" />,
+   309→    },
+   310→    {
+   311→      value: 'plans',
+   312→      label: 'Plans',
+   313→      icon: <CreditCard className="h-3.5 w-3.5" />,
+   314→    },
+   315→    {
+   316→      value: 'subscriptions',
+   317→      label: 'Subscriptions',
+   318→      icon: <CalendarPlus className="h-3.5 w-3.5" />,
+   319→    },
+   320→    {
+   321→      value: 'usage',
+   322→      label: 'Usage',
+   323→      icon: <BarChart3 className="h-3.5 w-3.5" />,
+   324→    },
+   325→    {
+   326→      value: 'settings',
+   327→      label: 'Settings',
+   328→      icon: <SettingsIcon className="h-3.5 w-3.5" />,
+   329→    },
+   330→    {
+   331→      value: 'audit',
+   332→      label: 'Audit Log',
+   333→      icon: <ShieldAlert className="h-3.5 w-3.5" />,
+   334→    },
+   335→  ]
+   336→
+   337→  return (
+   338→    <div className="mx-auto max-w-6xl px-4 py-8 md:py-10 sm:px-6">
+   339→      {/* Header */}
+   340→      <Reveal variant={fadeUp} className="mb-8">
+   341→        <p className="font-mono text-xs text-brand">
+   342→          <span className="text-muted-foreground">{'>'}</span> sudo admin
+   343→        </p>
+   344→        <div className="mt-1 flex items-center gap-3">
+   345→          <h1 className="text-3xl font-semibold tracking-tight">Admin</h1>
+   346→          <span className="brand-dot" />
+   347→        </div>
+   348→        <p className="mt-1 text-sm text-muted-foreground">
+   349→          Manage users, content, and site settings.
+   350→        </p>
+   351→      </Reveal>
+   352→
+   353→      <Tabs
+   354→        value={tab}
+   355→        onValueChange={setTab}
+   356→        orientation="vertical"
+   357→        className="flex flex-col gap-6 lg:flex-row"
+   358→      >
+   359→        <Reveal variant={fadeUp} delay={0.05}>
+   360→          <TabsList className="grid h-fit w-full grid-cols-3 gap-1 rounded-xl bg-transparent p-0 sm:grid-cols-5 lg:flex lg:w-56 lg:flex-col lg:grid-cols-1">
+   361→            {TABS.map((t) => (
+   362→              <TabsTrigger
+   363→                key={t.value}
+   364→                value={t.value}
+   365→                className="font-mono flex items-center justify-start gap-2 rounded-md border-b-2 border-transparent px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-l-2 data-[state=active]:border-b-transparent data-[state=active]:border-l-brand data-[state=active]:bg-brand/10 data-[state=active]:text-brand data-[state=active]:shadow-none lg:border-b-0 lg:border-l-2"
+   366→              >
+   367→                {t.icon}
+   368→                <span>{t.label}</span>
+   369→              </TabsTrigger>
+   370→            ))}
+   371→          </TabsList>
+   372→        </Reveal>
+   373→
+   374→        <div className="min-w-0 flex-1">
+   375→          <TabsContent value="overview" className="mt-0">
+   376→            <OverviewTab />
+   377→          </TabsContent>
+   378→          <TabsContent value="users" className="mt-0">
+   379→            <UsersTab />
+   380→          </TabsContent>
+   381→          <TabsContent value="content" className="mt-0">
+   382→            <ContentTab />
+   383→          </TabsContent>
+   384→          <TabsContent value="roles" className="mt-0">
+   385→            <RolesTab />
+   386→          </TabsContent>
+   387→          <TabsContent value="plans" className="mt-0">
+   388→            <PlansTab />
+   389→          </TabsContent>
+   390→          <TabsContent value="subscriptions" className="mt-0">
+   391→            <SubscriptionsTab />
+   392→          </TabsContent>
+   393→          <TabsContent value="usage" className="mt-0">
+   394→            <UsageTab />
+   395→          </TabsContent>
+   396→          <TabsContent value="settings" className="mt-0">
+   397→            <SettingsTab />
+   398→          </TabsContent>
+   399→          <TabsContent value="audit" className="mt-0">
+   400→            <AuditTab />
+   401→          </TabsContent>
+   402→        </div>
+   403→      </Tabs>
+   404→    </div>
+   405→  )
+   406→}
+   407→
+   408→/* ---------------- Overview ---------------- */
+   409→
+   410→function OverviewTab() {
+   411→  const [data, setData] = useState<Analytics | null>(null)
+   412→  const [loading, setLoading] = useState(true)
+   413→
+   414→  useEffect(() => {
+   415→    let active = true
+   416→    api.admin
+   417→      .analytics()
+   418→      .then((rows) => {
+   419→        if (active && rows[0]) setData(rows[0])
+   420→      })
+   421→      .catch((err) => {
+   422→        toast.error(err instanceof ApiError ? err.message : 'Failed to load analytics.')
+   423→      })
+   424→      .finally(() => {
+   425→        if (active) setLoading(false)
+   426→      })
+   427→    return () => {
+   428→      active = false
+   429→    }
+   430→  }, [])
+   431→
+   432→  if (loading || !data) {
+   433→    return (
+   434→      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+   435→        {[0, 1, 2, 3].map((i) => (
+   436→          <div key={i} className="shimmer surface h-28 rounded-xl" />
+   437→        ))}
+   438→        <div className="shimmer surface h-64 rounded-xl sm:col-span-2 lg:col-span-4" />
+   439→      </div>
+   440→    )
+   441→  }
+   442→
+   443→  const traffic = data.traffic.map((t) => ({
+   444→    ...t,
+   445→    label: new Date(t.date).toLocaleDateString(undefined, {
+   446→      month: 'short',
+   447→      day: 'numeric',
+   448→    }),
+   449→  }))
+   450→
+   451→  const maxLang = data.topLanguages.reduce((m, l) => Math.max(m, l.count), 1)
+   452→
+   453→  return (
+   454→    <div className="space-y-4">
+   455→      {/* KPI cards */}
+   456→      <StaggerGroup stagger={0.07} className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+   457→        <Reveal variant={scaleIn}>
+   458→          <KpiCard
+   459→            label="Total users"
+   460→            value={data.totalUsers}
+   461→            icon={<UsersIcon className="h-4 w-4" />}
+   462→            accent
+   463→          />
+   464→        </Reveal>
+   465→        <Reveal variant={scaleIn}>
+   466→          <KpiCard
+   467→            label="Active pastes"
+   468→            value={data.totalActivePastes}
+   469→            icon={<FileText className="h-4 w-4" />}
+   470→          />
+   471→        </Reveal>
+   472→        <Reveal variant={scaleIn}>
+   473→          <KpiCard
+   474→            label="Total files"
+   475→            value={data.totalFiles}
+   476→            icon={<HardDrive className="h-4 w-4" />}
+   477→          />
+   478→        </Reveal>
+   479→        <Reveal variant={scaleIn}>
+   480→          <KpiCard
+   481→            label="Storage used"
+   482→            value={data.storageUsedBytes}
+   483→            format={(n) => formatBytes(n)}
+   484→            icon={<HardDrive className="h-4 w-4" />}
+   485→            accent
+   486→          />
+   487→        </Reveal>
+   488→      </StaggerGroup>
+   489→
+   490→      {/* Secondary stat cards */}
+   491→      <StaggerGroup stagger={0.06} className="grid gap-4 sm:grid-cols-2">
+   492→        <Reveal variant={scaleIn}>
+   493→          <div className="surface lift flex items-center gap-4 rounded-xl p-5">
+   494→            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/15 text-amber-500">
+   495→              <Flag className="h-5 w-5" />
+   496→            </div>
+   497→            <div>
+   498→              <p className="text-2xl font-semibold">
+   499→                <AnimatedNumber value={data.flaggedCount} />
+   500→              </p>
+   501→              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+   502→                Flagged content
+   503→              </p>
+   504→            </div>
+   505→          </div>
+   506→        </Reveal>
+   507→        <Reveal variant={scaleIn}>
+   508→          <div className="surface lift flex items-center gap-4 rounded-xl p-5">
+   509→            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-2/15 text-brand-2">
+   510→              <Flame className="h-5 w-5" />
+   511→            </div>
+   512→            <div>
+   513→              <p className="text-2xl font-semibold">
+   514→                <AnimatedNumber value={data.burnedCount} />
+   515→              </p>
+   516→              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+   517→                Burned pastes
+   518→              </p>
+   519→            </div>
+   520→          </div>
+   521→        </Reveal>
+   522→      </StaggerGroup>
+   523→
+   524→      {/* Charts */}
+   525→      <div className="grid gap-4 lg:grid-cols-3">
+   526→        <Reveal variant={fadeUp} className="lg:col-span-2">
+   527→          <div className="surface rounded-xl p-5">
+   528→            <div className="mb-4 flex items-baseline justify-between">
+   529→              <h3 className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+   530→                paste creation — 14d
+   531→              </h3>
+   532→              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+   533→                <span className="h-2 w-2 rounded-full bg-brand" /> daily count
+   534→              </div>
+   535→            </div>
+   536→            <div className="h-64 w-full">
+   537→              <ResponsiveContainer width="100%" height="100%">
+   538→                <AreaChart
+   539→                  data={traffic}
+   540→                  margin={{ top: 5, right: 8, bottom: 0, left: -20 }}
+   541→                >
+   542→                  <defs>
+   543→                    <linearGradient id="trafficFill" x1="0" y1="0" x2="0" y2="1">
+   544→                      <stop offset="0%" stopColor={BRAND_LIME} stopOpacity={0.45} />
+   545→                      <stop offset="100%" stopColor={BRAND_LIME} stopOpacity={0} />
+   546→                    </linearGradient>
+   547→                  </defs>
+   548→                  <XAxis
+   549→                    dataKey="label"
+   550→                    tick={{ fontSize: 11, fill: 'currentColor' }}
+   551→                    className="text-muted-foreground"
+   552→                    axisLine={false}
+   553→                    tickLine={false}
+   554→                  />
+   555→                  <YAxis
+   556→                    allowDecimals={false}
+   557→                    tick={{ fontSize: 11, fill: 'currentColor' }}
+   558→                    className="text-muted-foreground"
+   559→                    axisLine={false}
+   560→                    tickLine={false}
+   561→                  />
+   562→                  <Tooltip content={<ChartTooltip />} />
+   563→                  <Area
+   564→                    type="monotone"
+   565→                    dataKey="count"
+   566→                    stroke={BRAND_LIME}
+   567→                    strokeWidth={2.5}
+   568→                    fill="url(#trafficFill)"
+   569→                    dot={false}
+   570→                    activeDot={{
+   571→                      r: 5,
+   572→                      fill: BRAND_LIME,
+   573→                      stroke: 'white',
+   574→                      strokeWidth: 2,
+   575→                    }}
+   576→                  />
+   577→                </AreaChart>
+   578→              </ResponsiveContainer>
+   579→            </div>
+   580→          </div>
+   581→        </Reveal>
+   582→
+   583→        <Reveal variant={fadeUp} delay={0.05}>
+   584→          <div className="surface h-full rounded-xl p-5">
+   585→            <h3 className="font-mono mb-4 text-[11px] uppercase tracking-wider text-muted-foreground">
+   586→              top languages
+   587→            </h3>
+   588→            {data.topLanguages.length === 0 ? (
+   589→              <p className="py-12 text-center text-sm text-muted-foreground">
+   590→                No data yet.
+   591→              </p>
+   592→            ) : (
+   593→              <div className="space-y-2.5">
+   594→                {data.topLanguages.slice(0, 8).map((l) => (
+   595→                  <div key={l.language} className="space-y-1">
+   596→                    <div className="flex items-center justify-between text-xs">
+   597→                      <span className="font-mono text-foreground">
+   598→                        {l.language}
+   599→                      </span>
+   600→                      <span className="text-muted-foreground">{l.count}</span>
+   601→                    </div>
+   602→                    <div className="h-1.5 overflow-hidden rounded-full bg-brand/20">
+   603→                      <motion.div
+   604→                        initial={{ width: 0 }}
+   605→                        animate={{ width: `${(l.count / maxLang) * 100}%` }}
+   606→                        transition={{ duration: 0.8, ease: [0.2, 0.8, 0.2, 1] }}
+   607→                        className="h-full rounded-full bg-brand"
+   608→                      />
+   609→                    </div>
+   610→                  </div>
+   611→                ))}
+   612→              </div>
+   613→            )}
+   614→          </div>
+   615→        </Reveal>
+   616→      </div>
+   617→    </div>
+   618→  )
+   619→}
+   620→
+   621→function KpiCard({
+   622→  label,
+   623→  value,
+   624→  icon,
+   625→  format,
+   626→  accent,
+   627→}: {
+   628→  label: string
+   629→  value: number
+   630→  icon: ReactNode
+   631→  format?: (n: number) => string
+   632→  accent?: boolean
+   633→}) {
+   634→  return (
+   635→    <div className="surface lift rounded-xl p-5">
+   636→      <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+   637→        {label}
+   638→      </p>
+   639→      <p
+   640→        className={`mt-2 text-2xl font-semibold ${
+   641→          accent ? 'text-brand' : 'text-foreground'
+   642→        }`}
+   643→      >
+   644→        <AnimatedNumber value={value} format={format} />
+   645→      </p>
+   646→      <div className="mt-3 text-muted-foreground">{icon}</div>
+   647→    </div>
+   648→  )
+   649→}
+   650→
+   651→function ChartTooltip({
+   652→  active,
+   653→  payload,
+   654→  label,
+   655→}: {
+   656→  active?: boolean
+   657→  payload?: { value: number }[]
+   658→  label?: string
+   659→}) {
+   660→  if (!active || !payload || payload.length === 0) return null
+   661→  return (
+   662→    <div className="surface-2 rounded-md p-2 text-xs">
+   663→      <p className="font-mono text-muted-foreground">{label}</p>
+   664→      <p className="mt-0.5 font-semibold text-brand">{payload[0].value} pastes</p>
+   665→    </div>
+   666→  )
+   667→}
+   668→
+   669→/* ---------------- Users ---------------- */
+   670→
+   671→function UsersTab() {
+   672→  const me = useAppStore((s) => s.user)!
+   673→  const [rows, setRows] = useState<UserRow[]>([])
+   674→  const [loading, setLoading] = useState(true)
+   675→  const [q, setQ] = useState('')
+   676→  const [status, setStatus] = useState<string>('all')
+   677→  const [confirm, setConfirm] = useState<{
+   678→    user: UserRow
+   679→    action: 'delete' | 'ban' | 'suspend'
+   680→  } | null>(null)
+   681→  const [busy, setBusy] = useState(false)
+   682→
+   683→  async function fetchUsers() {
+   684→    setLoading(true)
+   685→    try {
+   686→      const r = await api.admin.listUsers(
+   687→        q || undefined,
+   688→        status === 'all' ? undefined : status,
+   689→      )
+   690→      setRows(r)
+   691→    } catch (err) {
+   692→      toast.error(err instanceof ApiError ? err.message : 'Failed to load users.')
+   693→    } finally {
+   694→      setLoading(false)
+   695→    }
+   696→  }
+   697→
+   698→  useEffect(() => {
+   699→    fetchUsers()
+   700→  }, [status])
+   701→
+   702→  async function patchUser(
+   703→    u: UserRow,
+   704→    patch: { status?: string; role?: string; verify?: boolean },
+   705→  ) {
+   706→    if (u.id === me.id && (patch.status === 'banned' || patch.status === 'suspended')) {
+   707→      toast.error('You cannot suspend or ban yourself.')
+   708→      return
+   709→    }
+   710→    try {
+   711→      const res = await api.admin.updateUser(u.id, patch)
+   712→      const updated = res[0] as UserRow | undefined
+   713→      if (updated) {
+   714→        setRows((cur) => cur.map((x) => (x.id === u.id ? { ...x, ...updated } : x)))
+   715→        toast.success('User updated')
+   716→      }
+   717→    } catch (err) {
+   718→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+   719→    }
+   720→  }
+   721→
+   722→  async function doConfirm() {
+   723→    if (!confirm) return
+   724→    setBusy(true)
+   725→    try {
+   726→      if (confirm.action === 'delete') {
+   727→        if (confirm.user.id === me.id) {
+   728→          toast.error('You cannot delete yourself.')
+   729→          return
+   730→        }
+   731→        await api.admin.deleteUser(confirm.user.id)
+   732→        setRows((cur) => cur.filter((x) => x.id !== confirm.user.id))
+   733→        toast.success('User deleted')
+   734→      } else if (confirm.action === 'ban') {
+   735→        if (confirm.user.id === me.id) {
+   736→          toast.error('You cannot ban yourself.')
+   737→          return
+   738→        }
+   739→        const res = await api.admin.updateUser(confirm.user.id, { status: 'banned' })
+   740→        const updated = res[0] as UserRow | undefined
+   741→        if (updated)
+   742→          setRows((cur) =>
+   743→            cur.map((x) => (x.id === confirm.user.id ? { ...x, ...updated } : x)),
+   744→          )
+   745→        toast.success('User banned')
+   746→      } else if (confirm.action === 'suspend') {
+   747→        if (confirm.user.id === me.id) {
+   748→          toast.error('You cannot suspend yourself.')
+   749→          return
+   750→        }
+   751→        const res = await api.admin.updateUser(confirm.user.id, { status: 'suspended' })
+   752→        const updated = res[0] as UserRow | undefined
+   753→        if (updated)
+   754→          setRows((cur) =>
+   755→            cur.map((x) => (x.id === confirm.user.id ? { ...x, ...updated } : x)),
+   756→          )
+   757→        toast.success('User suspended')
+   758→      }
+   759→    } catch (err) {
+   760→      toast.error(err instanceof ApiError ? err.message : 'Action failed.')
+   761→    } finally {
+   762→      setBusy(false)
+   763→      setConfirm(null)
+   764→    }
+   765→  }
+   766→
+   767→  return (
+   768→    <div className="space-y-4">
+   769→      {/* Filter bar */}
+   770→      <Reveal variant={fadeUp}>
+   771→        <div className="surface flex flex-wrap items-center gap-2 rounded-xl p-3">
+   772→          <div className="relative min-w-[200px] flex-1">
+   773→            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+   774→            <Input
+   775→              placeholder="Search by email or name…"
+   776→              value={q}
+   777→              onChange={(e) => setQ(e.target.value)}
+   778→              onKeyDown={(e) => e.key === 'Enter' && fetchUsers()}
+   779→              className={`${INPUT_CLASS} pl-9`}
+   780→            />
+   781→          </div>
+   782→          <Select value={status} onValueChange={setStatus}>
+   783→            <SelectTrigger className={`${INPUT_CLASS} w-[140px]`}>
+   784→              <SelectValue placeholder="Status" />
+   785→            </SelectTrigger>
+   786→            <SelectContent>
+   787→              <SelectItem value="all">All</SelectItem>
+   788→              <SelectItem value="active">Active</SelectItem>
+   789→              <SelectItem value="pending_verification">Pending</SelectItem>
+   790→              <SelectItem value="suspended">Suspended</SelectItem>
+   791→              <SelectItem value="banned">Banned</SelectItem>
+   792→            </SelectContent>
+   793→          </Select>
+   794→          <Button
+   795→            onClick={fetchUsers}
+   796→            className="bg-brand text-brand-foreground hover:bg-brand/90"
+   797→            size="sm"
+   798→          >
+   799→            <Search className="h-3.5 w-3.5" /> Search
+   800→          </Button>
+   801→        </div>
+   802→      </Reveal>
+   803→
+   804→      {/* Table */}
+   805→      <Reveal variant={fadeUp} delay={0.05}>
+   806→        <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+   807→          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+   808→            <Table>
+   809→              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+   810→                <TableRow className="border-border hover:bg-transparent">
+   811→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+   812→                    User
+   813→                  </TableHead>
+   814→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+   815→                    Role
+   816→                  </TableHead>
+   817→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+   818→                    Status
+   819→                  </TableHead>
+   820→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+   821→                    Pastes
+   822→                  </TableHead>
+   823→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+   824→                    Created
+   825→                  </TableHead>
+   826→                  <TableHead className="px-4" />
+   827→                </TableRow>
+   828→              </TableHeader>
+   829→              <motion.tbody
+   830→                variants={staggerContainer(0.04)}
+   831→                initial="hidden"
+   832→                animate="show"
+   833→              >
+   834→                {loading ? (
+   835→                  <TableRow>
+   836→                    <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+   837→                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+   838→                      Loading users…
+   839→                    </TableCell>
+   840→                  </TableRow>
+   841→                ) : rows.length === 0 ? (
+   842→                  <TableRow>
+   843→                    <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+   844→                      No users found.
+   845→                    </TableCell>
+   846→                  </TableRow>
+   847→                ) : (
+   848→                  rows.map((u) => {
+   849→                    const uname = u.displayName || u.email.split('@')[0]
+   850→                    const initials = uname.slice(0, 2).toUpperCase()
+   851→                    const isSelf = u.id === me.id
+   852→                    return (
+   853→                      <motion.tr
+   854→                        key={u.id}
+   855→                        variants={fadeUp}
+   856→                        className="border-border border-b transition-colors hover:bg-surface-3"
+   857→                      >
+   858→                        <TableCell className="px-4 py-3">
+   859→                          <div className="flex items-center gap-2.5">
+   860→                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-2 text-[10px] font-bold text-brand-foreground">
+   861→                              {initials}
+   862→                            </div>
+   863→                            <div className="min-w-0">
+   864→                              <p className="truncate text-sm font-medium">
+   865→                                {uname}
+   866→                                {isSelf && (
+   867→                                  <span className="ml-1.5 text-[10px] text-brand">(you)</span>
+   868→                                )}
+   869→                              </p>
+   870→                              <p className="truncate text-[11px] text-muted-foreground">
+   871→                                {u.email}
+   872→                              </p>
+   873→                            </div>
+   874→                          </div>
+   875→                        </TableCell>
+   876→                        <TableCell className="px-4 py-3">
+   877→                          <RoleBadge role={u.role} />
+   878→                        </TableCell>
+   879→                        <TableCell className="px-4 py-3">
+   880→                          <UserStatusBadge status={u.status} />
+   881→                        </TableCell>
+   882→                        <TableCell className="font-mono px-4 py-3 text-xs">
+   883→                          {u.pasteCount ?? 0}
+   884→                        </TableCell>
+   885→                        <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+   886→                          {formatRelativeTime(u.createdAt)}
+   887→                        </TableCell>
+   888→                        <TableCell className="px-4 py-3 text-right">
+   889→                          <DropdownMenu>
+   890→                            <DropdownMenuTrigger asChild>
+   891→                              <Button variant="ghost" size="icon" className="h-8 w-8">
+   892→                                <MoreHorizontal className="h-4 w-4" />
+   893→                              </Button>
+   894→                            </DropdownMenuTrigger>
+   895→                            <DropdownMenuContent align="end" className="w-44">
+   896→                              {u.status !== 'active' && (
+   897→                                <DropdownMenuItem
+   898→                                  onClick={() =>
+   899→                                    patchUser(u, { status: 'active' })
+   900→                                  }
+   901→                                >
+   902→                                  <CheckCircle2 className="h-3.5 w-3.5" /> Activate
+   903→                                </DropdownMenuItem>
+   904→                              )}
+   905→                              {u.status !== 'suspended' && !isSelf && (
+   906→                                <DropdownMenuItem
+   907→                                  onClick={() =>
+   908→                                    setConfirm({ user: u, action: 'suspend' })
+   909→                                  }
+   910→                                >
+   911→                                  <Pause className="h-3.5 w-3.5" /> Suspend
+   912→                                </DropdownMenuItem>
+   913→                              )}
+   914→                              {u.status !== 'banned' && !isSelf && (
+   915→                                <DropdownMenuItem
+   916→                                  onClick={() =>
+   917→                                    setConfirm({ user: u, action: 'ban' })
+   918→                                  }
+   919→                                >
+   920→                                  <Ban className="h-3.5 w-3.5" /> Ban
+   921→                                </DropdownMenuItem>
+   922→                              )}
+   923→                              <DropdownMenuSeparator />
+   924→                              {u.role !== 'admin' ? (
+   925→                                <DropdownMenuItem
+   926→                                  onClick={() =>
+   927→                                    patchUser(u, { role: 'admin' })
+   928→                                  }
+   929→                                >
+   930→                                  <ArrowUpCircle className="h-3.5 w-3.5" /> Promote to admin
+   931→                                </DropdownMenuItem>
+   932→                              ) : (
+   933→                                !isSelf && (
+   934→                                  <DropdownMenuItem
+   935→                                    onClick={() =>
+   936→                                      patchUser(u, { role: 'user' })
+   937→                                    }
+   938→                                  >
+   939→                                    <ArrowDownCircle className="h-3.5 w-3.5" /> Demote to user
+   940→                                  </DropdownMenuItem>
+   941→                                )
+   942→                              )}
+   943→                              <DropdownMenuSeparator />
+   944→                              <DropdownMenuItem
+   945→                                variant="destructive"
+   946→                                disabled={isSelf}
+   947→                                onClick={() =>
+   948→                                  setConfirm({ user: u, action: 'delete' })
+   949→                                }
+   950→                              >
+   951→                                <Trash2 className="h-3.5 w-3.5" /> Delete
+   952→                              </DropdownMenuItem>
+   953→                            </DropdownMenuContent>
+   954→                          </DropdownMenu>
+   955→                        </TableCell>
+   956→                      </motion.tr>
+   957→                    )
+   958→                  })
+   959→                )}
+   960→              </motion.tbody>
+   961→            </Table>
+   962→          </div>
+   963→        </div>
+   964→      </Reveal>
+   965→
+   966→      {/* Confirm dialog */}
+   967→      <AlertDialog
+   968→        open={!!confirm}
+   969→        onOpenChange={(o) => !o && setConfirm(null)}
+   970→      >
+   971→        <AlertDialogContent>
+   972→          <AlertDialogHeader>
+   973→            <AlertDialogTitle>
+   974→              {confirm?.action === 'delete'
+   975→                ? 'Delete user?'
+   976→                : confirm?.action === 'ban'
+   977→                  ? 'Ban user?'
+   978→                  : 'Suspend user?'}
+   979→            </AlertDialogTitle>
+   980→            <AlertDialogDescription>
+   981→              {confirm?.action === 'delete' ? (
+   982→                <>
+   983→                  This will permanently delete{' '}
+   984→                  <span className="font-mono text-foreground">
+   985→                    {confirm?.user.email}
+   986→                  </span>{' '}
+   987→                  and all their pastes. This cannot be undone.
+   988→                </>
+   989→              ) : (
+   990→                <>
+   991→                  {confirm?.action === 'ban'
+   992→                    ? 'Banned users cannot log in.'
+   993→                    : 'Suspended users cannot log in until reactivated.'}
+   994→                </>
+   995→              )}
+   996→            </AlertDialogDescription>
+   997→          </AlertDialogHeader>
+   998→          <AlertDialogFooter>
+   999→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1000→            <AlertDialogAction
+  1001→              className={
+  1002→                confirm?.action === 'delete'
+  1003→                  ? 'bg-destructive text-white hover:bg-destructive/90'
+  1004→                  : 'bg-amber-500 text-white hover:bg-amber-500/90'
+  1005→              }
+  1006→              onClick={doConfirm}
+  1007→              disabled={busy}
+  1008→            >
+  1009→              {busy ? (
+  1010→                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  1011→              ) : confirm?.action === 'delete' ? (
+  1012→                'Delete'
+  1013→              ) : confirm?.action === 'ban' ? (
+  1014→                'Ban'
+  1015→              ) : (
+  1016→                'Suspend'
+  1017→              )}
+  1018→            </AlertDialogAction>
+  1019→          </AlertDialogFooter>
+  1020→        </AlertDialogContent>
+  1021→      </AlertDialog>
+  1022→    </div>
+  1023→  )
+  1024→}
+  1025→
+  1026→function RoleBadge({ role }: { role: SafeUser['role'] }) {
+  1027→  if (role === 'admin')
+  1028→    return (
+  1029→      <span className="inline-flex items-center gap-1 rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+  1030→        <Shield className="h-2.5 w-2.5" /> admin
+  1031→      </span>
+  1032→    )
+  1033→  return (
+  1034→    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+  1035→      user
+  1036→    </span>
+  1037→  )
+  1038→}
+  1039→
+  1040→function UserStatusBadge({ status }: { status: SafeUser['status'] }) {
+  1041→  if (status === 'active')
+  1042→    return (
+  1043→      <span className="inline-flex items-center gap-1 rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+  1044→        active
+  1045→      </span>
+  1046→    )
+  1047→  if (status === 'suspended')
+  1048→    return (
+  1049→      <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
+  1050→        suspended
+  1051→      </span>
+  1052→    )
+  1053→  if (status === 'banned')
+  1054→    return (
+  1055→      <span className="inline-flex items-center gap-1 rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+  1056→        banned
+  1057→      </span>
+  1058→    )
+  1059→  return (
+  1060→    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+  1061→      pending
+  1062→    </span>
+  1063→  )
+  1064→}
+  1065→
+  1066→/* ---------------- Content ---------------- */
+  1067→
+  1068→function ContentTab() {
+  1069→  const [rows, setRows] = useState<SafePaste[]>([])
+  1070→  const [loading, setLoading] = useState(true)
+  1071→  const [q, setQ] = useState('')
+  1072→  const [flaggedOnly, setFlaggedOnly] = useState(false)
+  1073→  const [expiredOnly, setExpiredOnly] = useState(false)
+  1074→  const [confirmDelete, setConfirmDelete] = useState<SafePaste | null>(null)
+  1075→  const [busy, setBusy] = useState(false)
+  1076→
+  1077→  async function fetchPastes() {
+  1078→    setLoading(true)
+  1079→    try {
+  1080→      const r = await api.admin.listPastes({
+  1081→        q: q || undefined,
+  1082→        flagged: flaggedOnly || undefined,
+  1083→        expired: expiredOnly || undefined,
+  1084→      })
+  1085→      setRows(r)
+  1086→    } catch (err) {
+  1087→      toast.error(err instanceof ApiError ? err.message : 'Failed to load pastes.')
+  1088→    } finally {
+  1089→      setLoading(false)
+  1090→    }
+  1091→  }
+  1092→
+  1093→  useEffect(() => {
+  1094→    fetchPastes()
+  1095→  }, [flaggedOnly, expiredOnly])
+  1096→
+  1097→  async function patchPaste(
+  1098→    p: SafePaste,
+  1099→    patch: { isFlagged?: boolean; visibility?: string; forceExpire?: boolean },
+  1100→  ) {
+  1101→    try {
+  1102→      const res = await api.admin.updatePaste(p.id, patch)
+  1103→      const updated = res[0] as SafePaste | undefined
+  1104→      if (updated)
+  1105→        setRows((cur) => cur.map((x) => (x.id === p.id ? updated : x)))
+  1106→      toast.success('Paste updated')
+  1107→    } catch (err) {
+  1108→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+  1109→    }
+  1110→  }
+  1111→
+  1112→  async function doDelete() {
+  1113→    if (!confirmDelete) return
+  1114→    setBusy(true)
+  1115→    try {
+  1116→      await api.admin.deletePaste(confirmDelete.id)
+  1117→      setRows((cur) => cur.filter((x) => x.id !== confirmDelete.id))
+  1118→      toast.success('Paste deleted')
+  1119→    } catch (err) {
+  1120→      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+  1121→    } finally {
+  1122→      setBusy(false)
+  1123→      setConfirmDelete(null)
+  1124→    }
+  1125→  }
+  1126→
+  1127→  return (
+  1128→    <div className="space-y-4">
+  1129→      {/* Filter bar */}
+  1130→      <Reveal variant={fadeUp}>
+  1131→        <div className="surface flex flex-wrap items-center gap-3 rounded-xl p-3">
+  1132→          <div className="relative min-w-[200px] flex-1">
+  1133→            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+  1134→            <Input
+  1135→              placeholder="Search by title, slug, or owner…"
+  1136→              value={q}
+  1137→              onChange={(e) => setQ(e.target.value)}
+  1138→              onKeyDown={(e) => e.key === 'Enter' && fetchPastes()}
+  1139→              className={`${INPUT_CLASS} pl-9`}
+  1140→            />
+  1141→          </div>
+  1142→          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+  1143→            <Switch
+  1144→              checked={flaggedOnly}
+  1145→              onCheckedChange={setFlaggedOnly}
+  1146→            />
+  1147→            Flagged only
+  1148→          </label>
+  1149→          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+  1150→            <Switch
+  1151→              checked={expiredOnly}
+  1152→              onCheckedChange={setExpiredOnly}
+  1153→            />
+  1154→            Expired only
+  1155→          </label>
+  1156→          <Button
+  1157→            onClick={fetchPastes}
+  1158→            className="bg-brand text-brand-foreground hover:bg-brand/90"
+  1159→            size="sm"
+  1160→          >
+  1161→            <Search className="h-3.5 w-3.5" /> Search
+  1162→          </Button>
+  1163→        </div>
+  1164→      </Reveal>
+  1165→
+  1166→      {/* Table */}
+  1167→      <Reveal variant={fadeUp} delay={0.05}>
+  1168→        <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+  1169→          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+  1170→            <Table>
+  1171→              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+  1172→                <TableRow className="border-border hover:bg-transparent">
+  1173→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1174→                    Title
+  1175→                  </TableHead>
+  1176→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1177→                    Type
+  1178→                  </TableHead>
+  1179→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1180→                    Lang
+  1181→                  </TableHead>
+  1182→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1183→                    Vis
+  1184→                  </TableHead>
+  1185→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1186→                    Views
+  1187→                  </TableHead>
+  1188→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1189→                    Status
+  1190→                  </TableHead>
+  1191→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1192→                    Owner
+  1193→                  </TableHead>
+  1194→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1195→                    Created
+  1196→                  </TableHead>
+  1197→                  <TableHead className="px-4" />
+  1198→                </TableRow>
+  1199→              </TableHeader>
+  1200→              <motion.tbody
+  1201→                variants={staggerContainer(0.04)}
+  1202→                initial="hidden"
+  1203→                animate="show"
+  1204→              >
+  1205→                {loading ? (
+  1206→                  <TableRow>
+  1207→                    <TableCell colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+  1208→                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+  1209→                      Loading pastes…
+  1210→                    </TableCell>
+  1211→                  </TableRow>
+  1212→                ) : rows.length === 0 ? (
+  1213→                  <TableRow>
+  1214→                    <TableCell colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+  1215→                      No pastes found.
+  1216→                    </TableCell>
+  1217→                  </TableRow>
+  1218→                ) : (
+  1219→                  rows.map((p) => (
+  1220→                    <motion.tr
+  1221→                      key={p.id}
+  1222→                      variants={fadeUp}
+  1223→                      className="border-border border-b transition-colors hover:bg-surface-3"
+  1224→                    >
+  1225→                      <TableCell className="px-4 py-3">
+  1226→                        <div className="min-w-0">
+  1227→                          <p className="max-w-[200px] truncate text-sm font-medium">
+  1228→                            {p.title || `/${p.slug}`}
+  1229→                          </p>
+  1230→                          <p className="font-mono max-w-[200px] truncate text-[11px] text-muted-foreground">
+  1231→                            {p.slug}
+  1232→                          </p>
+  1233→                        </div>
+  1234→                      </TableCell>
+  1235→                      <TableCell className="px-4 py-3">
+  1236→                        <span className="font-mono text-[11px] text-muted-foreground">
+  1237→                          {p.contentType}
+  1238→                        </span>
+  1239→                      </TableCell>
+  1240→                      <TableCell className="px-4 py-3">
+  1241→                        <span className="font-mono text-[11px] text-muted-foreground">
+  1242→                          {p.language}
+  1243→                        </span>
+  1244→                      </TableCell>
+  1245→                      <TableCell className="px-4 py-3">
+  1246→                        <span className="font-mono text-[11px] capitalize text-muted-foreground">
+  1247→                          {p.visibility}
+  1248→                        </span>
+  1249→                      </TableCell>
+  1250→                      <TableCell className="font-mono px-4 py-3 text-xs">
+  1251→                        {p.viewCount}
+  1252→                      </TableCell>
+  1253→                      <TableCell className="px-4 py-3">
+  1254→                        <div className="flex flex-wrap gap-1">
+  1255→                          {p.isExpired && (
+  1256→                            <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+  1257→                              expired
+  1258→                            </span>
+  1259→                          )}
+  1260→                          {p.isBurned && (
+  1261→                            <span className="inline-flex items-center rounded-md bg-brand-2/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-2">
+  1262→                              burned
+  1263→                            </span>
+  1264→                          )}
+  1265→                          {p.isFlagged && (
+  1266→                            <span className="inline-flex items-center rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+  1267→                              flagged
+  1268→                            </span>
+  1269→                          )}
+  1270→                          {!p.isExpired && !p.isBurned && !p.isFlagged && (
+  1271→                            <span className="inline-flex items-center rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+  1272→                              active
+  1273→                            </span>
+  1274→                          )}
+  1275→                        </div>
+  1276→                      </TableCell>
+  1277→                      <TableCell className="px-4 py-3">
+  1278→                        <span className="text-[11px] text-muted-foreground">
+  1279→                          {p.ownerName || 'guest'}
+  1280→                        </span>
+  1281→                      </TableCell>
+  1282→                      <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+  1283→                        {formatRelativeTime(p.createdAt)}
+  1284→                      </TableCell>
+  1285→                      <TableCell className="px-4 py-3 text-right">
+  1286→                        <DropdownMenu>
+  1287→                          <DropdownMenuTrigger asChild>
+  1288→                            <Button variant="ghost" size="icon" className="h-8 w-8">
+  1289→                              <MoreHorizontal className="h-4 w-4" />
+  1290→                            </Button>
+  1291→                          </DropdownMenuTrigger>
+  1292→                          <DropdownMenuContent align="end" className="w-44">
+  1293→                            <DropdownMenuItem
+  1294→                              onClick={() =>
+  1295→                                patchPaste(p, { isFlagged: !p.isFlagged })
+  1296→                              }
+  1297→                            >
+  1298→                              <Flag className="h-3.5 w-3.5" />
+  1299→                              {p.isFlagged ? 'Unflag' : 'Flag'}
+  1300→                            </DropdownMenuItem>
+  1301→                            {!p.isExpired && (
+  1302→                              <DropdownMenuItem
+  1303→                                onClick={() =>
+  1304→                                  patchPaste(p, { forceExpire: true })
+  1305→                                }
+  1306→                              >
+  1307→                                <Pause className="h-3.5 w-3.5" /> Force expire
+  1308→                              </DropdownMenuItem>
+  1309→                            )}
+  1310→                            <DropdownMenuSeparator />
+  1311→                            <DropdownMenuItem
+  1312→                              variant="destructive"
+  1313→                              onClick={() => setConfirmDelete(p)}
+  1314→                            >
+  1315→                              <Trash2 className="h-3.5 w-3.5" /> Delete
+  1316→                            </DropdownMenuItem>
+  1317→                          </DropdownMenuContent>
+  1318→                        </DropdownMenu>
+  1319→                      </TableCell>
+  1320→                    </motion.tr>
+  1321→                  ))
+  1322→                )}
+  1323→              </motion.tbody>
+  1324→            </Table>
+  1325→          </div>
+  1326→        </div>
+  1327→      </Reveal>
+  1328→
+  1329→      <AlertDialog
+  1330→        open={!!confirmDelete}
+  1331→        onOpenChange={(o) => !o && setConfirmDelete(null)}
+  1332→      >
+  1333→        <AlertDialogContent>
+  1334→          <AlertDialogHeader>
+  1335→            <AlertDialogTitle>Delete paste?</AlertDialogTitle>
+  1336→            <AlertDialogDescription>
+  1337→              This will permanently delete{' '}
+  1338→              <span className="font-mono text-foreground">
+  1339→                {confirmDelete?.slug}
+  1340→              </span>
+  1341→              . This cannot be undone.
+  1342→            </AlertDialogDescription>
+  1343→          </AlertDialogHeader>
+  1344→          <AlertDialogFooter>
+  1345→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1346→            <AlertDialogAction
+  1347→              className="bg-destructive text-white hover:bg-destructive/90"
+  1348→              onClick={doDelete}
+  1349→              disabled={busy}
+  1350→            >
+  1351→              {busy ? (
+  1352→                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  1353→              ) : (
+  1354→                'Delete'
+  1355→              )}
+  1356→            </AlertDialogAction>
+  1357→          </AlertDialogFooter>
+  1358→        </AlertDialogContent>
+  1359→      </AlertDialog>
+  1360→    </div>
+  1361→  )
+  1362→}
+  1363→
+  1364→/* ---------------- Settings ---------------- */
+  1365→
+  1366→type Settings = Record<string, unknown>
+  1367→
+  1368→function SettingsTab() {
+  1369→  const [settings, setSettings] = useState<Settings | null>(null)
+  1370→  const [saving, setSaving] = useState(false)
+  1371→  const [loading, setLoading] = useState(true)
+  1372→
+  1373→  useEffect(() => {
+  1374→    let active = true
+  1375→    api.admin
+  1376→      .getSettings()
+  1377→      .then((rows) => {
+  1378→        if (active && rows[0]) setSettings(rows[0] as Settings)
+  1379→      })
+  1380→      .catch((err) => {
+  1381→        toast.error(err instanceof ApiError ? err.message : 'Failed to load settings.')
+  1382→      })
+  1383→      .finally(() => {
+  1384→        if (active) setLoading(false)
+  1385→      })
+  1386→    return () => {
+  1387→      active = false
+  1388→    }
+  1389→  }, [])
+  1390→
+  1391→  function setField<K extends string>(key: K, value: unknown) {
+  1392→    setSettings((cur) => (cur ? { ...cur, [key]: value } : cur))
+  1393→  }
+  1394→
+  1395→  async function save() {
+  1396→    if (!settings) return
+  1397→    setSaving(true)
+  1398→    try {
+  1399→      const patch: Record<string, unknown> = { ...settings }
+  1400→      // maxFileSizeBytes stored as bytes; UI shows MB.
+  1401→      if (typeof settings.maxFileSizeBytes === 'number') {
+  1402→        patch.maxFileSizeBytes = settings.maxFileSizeBytes
+  1403→      }
+  1404→      await api.admin.updateSettings(patch)
+  1405→      toast.success('Settings saved')
+  1406→    } catch (err) {
+  1407→      toast.error(err instanceof ApiError ? err.message : 'Save failed.')
+  1408→    } finally {
+  1409→      setSaving(false)
+  1410→    }
+  1411→  }
+  1412→
+  1413→  if (loading || !settings) {
+  1414→    return (
+  1415→      <div className="surface rounded-2xl p-6">
+  1416→        <Loader2 className="h-5 w-5 animate-spin text-brand" />
+  1417→      </div>
+  1418→    )
+  1419→  }
+  1420→
+  1421→  const maxFileSizeMB =
+  1422→    typeof settings.maxFileSizeBytes === 'number'
+  1423→      ? Math.max(1, Math.round(settings.maxFileSizeBytes / (1024 * 1024)))
+  1424→      : 10
+  1425→
+  1426→  return (
+  1427→    <Reveal variant={fadeUp}>
+  1428→      <div className="surface rounded-2xl p-6">
+  1429→        {/* General */}
+  1430→        <SectionHeader>General</SectionHeader>
+  1431→        <div className="grid gap-4 sm:grid-cols-2">
+  1432→          <Field label="Site name">
+  1433→            <Input
+  1434→              value={String(settings.siteName ?? '')}
+  1435→              onChange={(e) => setField('siteName', e.target.value)}
+  1436→              className={INPUT_CLASS}
+  1437→              placeholder="PasteShare"
+  1438→            />
+  1439→          </Field>
+  1440→          <Field label="Tagline">
+  1441→            <Input
+  1442→              value={String(settings.tagline ?? '')}
+  1443→              onChange={(e) => setField('tagline', e.target.value)}
+  1444→              className={INPUT_CLASS}
+  1445→              placeholder="Share code & files, beautifully."
+  1446→            />
+  1447→          </Field>
+  1448→        </div>
+  1449→
+  1450→        <Divider />
+  1451→
+  1452→        {/* Limits */}
+  1453→        <SectionHeader>Limits</SectionHeader>
+  1454→        <div className="grid gap-4 sm:grid-cols-2">
+  1455→          <Field label="Default expiry">
+  1456→            <Select
+  1457→              value={String(settings.defaultExpiry ?? 'never')}
+  1458→              onValueChange={(v) => setField('defaultExpiry', v)}
+  1459→            >
+  1460→              <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+  1461→                <SelectValue />
+  1462→              </SelectTrigger>
+  1463→              <SelectContent>
+  1464→                {EXPIRY_OPTIONS.map((o) => (
+  1465→                  <SelectItem key={o.value} value={o.value}>
+  1466→                    {o.label}
+  1467→                  </SelectItem>
+  1468→                ))}
+  1469→              </SelectContent>
+  1470→            </Select>
+  1471→          </Field>
+  1472→          <Field label="Max file size (MB)">
+  1473→            <Input
+  1474→              type="number"
+  1475→              min={1}
+  1476→              value={maxFileSizeMB}
+  1477→              onChange={(e) =>
+  1478→                setField(
+  1479→                  'maxFileSizeBytes',
+  1480→                  Math.max(1, Number(e.target.value || 0)) * 1024 * 1024,
+  1481→                )
+  1482→              }
+  1483→              className={INPUT_CLASS}
+  1484→            />
+  1485→          </Field>
+  1486→          <Field label="Allowed file types">
+  1487→            <Input
+  1488→              value={String(settings.allowedFileTypes ?? '')}
+  1489→              onChange={(e) => setField('allowedFileTypes', e.target.value)}
+  1490→              className={INPUT_CLASS}
+  1491→              placeholder="image/*,text/*,application/pdf"
+  1492→            />
+  1493→          </Field>
+  1494→          <Field label="Guest posting">
+  1495→            <div className="flex items-center gap-2 pt-1.5">
+  1496→              <Switch
+  1497→                checked={Boolean(settings.guestPostingEnabled)}
+  1498→                onCheckedChange={(c) => setField('guestPostingEnabled', c)}
+  1499→              />
+  1500→              <span className="text-xs text-muted-foreground">
+  1501→                Allow anonymous paste creation
+  1502→              </span>
+  1503→            </div>
+  1504→          </Field>
+  1505→        </div>
+  1506→
+  1507→        <Divider />
+  1508→
+  1509→        {/* Storage */}
+  1510→        <SectionHeader>Storage</SectionHeader>
+  1511→        <div className="grid gap-4 sm:grid-cols-2">
+  1512→          <Field label="Storage driver">
+  1513→            <Select
+  1514→              value={String(settings.storageDriver ?? 'local')}
+  1515→              onValueChange={(v) => setField('storageDriver', v)}
+  1516→            >
+  1517→              <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+  1518→                <SelectValue />
+  1519→              </SelectTrigger>
+  1520→              <SelectContent>
+  1521→                <SelectItem value="local">Local filesystem</SelectItem>
+  1522→                <SelectItem value="s3">S3-compatible</SelectItem>
+  1523→              </SelectContent>
+  1524→            </Select>
+  1525→          </Field>
+  1526→          <Field label="Sitemap">
+  1527→            <div className="flex items-center gap-2 pt-1.5">
+  1528→              <Switch
+  1529→                checked={Boolean(settings.sitemapEnabled)}
+  1530→                onCheckedChange={(c) => setField('sitemapEnabled', c)}
+  1531→              />
+  1532→              <span className="text-xs text-muted-foreground">
+  1533→                Generate sitemap.xml
+  1534→              </span>
+  1535→            </div>
+  1536→          </Field>
+  1537→        </div>
+  1538→
+  1539→        <Divider />
+  1540→
+  1541→        {/* SEO */}
+  1542→        <SectionHeader>SEO</SectionHeader>
+  1543→        <div className="space-y-4">
+  1544→          <Field label="Meta title template">
+  1545→            <Input
+  1546→              value={String(settings.metaTitleTemplate ?? '')}
+  1547→              onChange={(e) => setField('metaTitleTemplate', e.target.value)}
+  1548→              className={INPUT_CLASS}
+  1549→              placeholder="%s — PasteShare"
+  1550→            />
+  1551→          </Field>
+  1552→          <Field label="Meta description template">
+  1553→            <Input
+  1554→              value={String(settings.metaDescriptionTemplate ?? '')}
+  1555→              onChange={(e) => setField('metaDescriptionTemplate', e.target.value)}
+  1556→              className={INPUT_CLASS}
+  1557→              placeholder="A code & file sharing platform."
+  1558→            />
+  1559→          </Field>
+  1560→          <Field label="robots.txt">
+  1561→            <Textarea
+  1562→              value={String(settings.robotsTxt ?? '')}
+  1563→              onChange={(e) => setField('robotsTxt', e.target.value)}
+  1564→              className={`${INPUT_CLASS} min-h-[120px] font-mono text-xs`}
+  1565→              placeholder="User-agent: *"
+  1566→            />
+  1567→          </Field>
+  1568→        </div>
+  1569→
+  1570→        <div className="mt-6 flex justify-end">
+  1571→          <Button
+  1572→            onClick={save}
+  1573→            disabled={saving}
+  1574→            className="btn-shine gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+  1575→          >
+  1576→            {saving ? (
+  1577→              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  1578→            ) : (
+  1579→              <Save className="h-3.5 w-3.5" />
+  1580→            )}
+  1581→            Save settings
+  1582→          </Button>
+  1583→        </div>
+  1584→      </div>
+  1585→    </Reveal>
+  1586→  )
+  1587→}
+  1588→
+  1589→function SectionHeader({ children }: { children: ReactNode }) {
+  1590→  return (
+  1591→    <h3 className="font-mono mb-4 text-[11px] uppercase tracking-wider text-muted-foreground">
+  1592→      {children}
+  1593→    </h3>
+  1594→  )
+  1595→}
+  1596→
+  1597→function Divider() {
+  1598→  return <div className="my-6 h-px bg-border" />
+  1599→}
+  1600→
+  1601→function Field({
+  1602→  label,
+  1603→  children,
+  1604→}: {
+  1605→  label: string
+  1606→  children: ReactNode
+  1607→}) {
+  1608→  return (
+  1609→    <div className="space-y-1.5">
+  1610→      <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+  1611→        {label}
+  1612→      </Label>
+  1613→      {children}
+  1614→    </div>
+  1615→  )
+  1616→}
+  1617→
+  1618→/* ---------------- Audit ---------------- */
+  1619→
+  1620→function AuditTab() {
+  1621→  const [rows, setRows] = useState<SafeAuditLog[]>([])
+  1622→  const [loading, setLoading] = useState(true)
+  1623→
+  1624→  useEffect(() => {
+  1625→    let active = true
+  1626→    api.admin
+  1627→      .listAudit(100)
+  1628→      .then((r) => {
+  1629→        if (active) setRows(r)
+  1630→      })
+  1631→      .catch((err) => {
+  1632→        toast.error(err instanceof ApiError ? err.message : 'Failed to load audit log.')
+  1633→      })
+  1634→      .finally(() => {
+  1635→        if (active) setLoading(false)
+  1636→      })
+  1637→    return () => {
+  1638→      active = false
+  1639→    }
+  1640→  }, [])
+  1641→
+  1642→  return (
+  1643→    <Reveal variant={fadeUp}>
+  1644→      <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+  1645→        <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+  1646→          <Table>
+  1647→            <TableHeader className="sticky top-0 z-10 bg-surface-2">
+  1648→              <TableRow className="border-border hover:bg-transparent">
+  1649→                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1650→                  Time
+  1651→                </TableHead>
+  1652→                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1653→                  Admin
+  1654→                </TableHead>
+  1655→                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1656→                  Action
+  1657→                </TableHead>
+  1658→                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1659→                  Target
+  1660→                </TableHead>
+  1661→                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1662→                  Target ID
+  1663→                </TableHead>
+  1664→                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1665→                  Metadata
+  1666→                </TableHead>
+  1667→              </TableRow>
+  1668→            </TableHeader>
+  1669→            <motion.tbody
+  1670→              variants={staggerContainer(0.03)}
+  1671→              initial="hidden"
+  1672→              animate="show"
+  1673→            >
+  1674→              {loading ? (
+  1675→                <TableRow>
+  1676→                  <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+  1677→                    <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+  1678→                    Loading audit log…
+  1679→                  </TableCell>
+  1680→                </TableRow>
+  1681→              ) : rows.length === 0 ? (
+  1682→                <TableRow>
+  1683→                  <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+  1684→                    No audit entries yet.
+  1685→                  </TableCell>
+  1686→                </TableRow>
+  1687→              ) : (
+  1688→                rows.map((a) => (
+  1689→                  <motion.tr
+  1690→                    key={a.id}
+  1691→                    variants={fadeUp}
+  1692→                    className="border-border border-b transition-colors hover:bg-surface-3"
+  1693→                  >
+  1694→                    <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+  1695→                      {formatDate(a.createdAt)}
+  1696→                    </TableCell>
+  1697→                    <TableCell className="px-4 py-3">
+  1698→                      <span className="text-xs">{a.adminEmail || 'system'}</span>
+  1699→                    </TableCell>
+  1700→                    <TableCell className="px-4 py-3">
+  1701→                      <ActionBadge action={a.action} />
+  1702→                    </TableCell>
+  1703→                    <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+  1704→                      {a.targetType}
+  1705→                    </TableCell>
+  1706→                    <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+  1707→                      <span className="block max-w-[120px] truncate">
+  1708→                        {a.targetId}
+  1709→                      </span>
+  1710→                    </TableCell>
+  1711→                    <TableCell className="px-4 py-3">
+  1712→                      <MetadataCell data={a.metadata} />
+  1713→                    </TableCell>
+  1714→                  </motion.tr>
+  1715→                ))
+  1716→              )}
+  1717→            </motion.tbody>
+  1718→          </Table>
+  1719→        </div>
+  1720→      </div>
+  1721→    </Reveal>
+  1722→  )
+  1723→}
+  1724→
+  1725→function ActionBadge({ action }: { action: string }) {
+  1726→  const lower = action.toLowerCase()
+  1727→  if (lower.includes('delete'))
+  1728→    return (
+  1729→      <span className="inline-flex items-center rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+  1730→        {action}
+  1731→      </span>
+  1732→    )
+  1733→  if (lower.includes('ban') || lower.includes('suspend'))
+  1734→    return (
+  1735→      <span className="inline-flex items-center rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
+  1736→        {action}
+  1737→      </span>
+  1738→    )
+  1739→  if (lower.includes('update') || lower.includes('edit') || lower.includes('set'))
+  1740→    return (
+  1741→      <span className="inline-flex items-center rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+  1742→        {action}
+  1743→      </span>
+  1744→    )
+  1745→  return (
+  1746→    <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+  1747→      {action}
+  1748→    </span>
+  1749→  )
+  1750→}
+  1751→
+  1752→function MetadataCell({ data }: { data: unknown }) {
+  1753→  const [open, setOpen] = useState(false)
+  1754→  const text = useMemo(() => {
+  1755→    if (data === null || data === undefined) return ''
+  1756→    if (typeof data === 'string') return data
+  1757→    try {
+  1758→      return JSON.stringify(data)
+  1759→    } catch {
+  1760→      return String(data)
+  1761→    }
+  1762→  }, [data])
+  1763→
+  1764→  if (!text) return <span className="text-[11px] text-muted-foreground">—</span>
+  1765→
+  1766→  return (
+  1767→    <div className="flex items-center gap-1">
+  1768→      <span className="max-w-[160px] truncate font-mono text-[11px] text-muted-foreground">
+  1769→        {text}
+  1770→      </span>
+  1771→      <Button
+  1772→        variant="ghost"
+  1773→        size="icon"
+  1774→        className="h-6 w-6"
+  1775→        onClick={() => setOpen(true)}
+  1776→      >
+  1777→        <Eye className="h-3 w-3" />
+  1778→      </Button>
+  1779→      <AlertDialog open={open} onOpenChange={setOpen}>
+  1780→        <AlertDialogContent>
+  1781→          <AlertDialogHeader>
+  1782→            <AlertDialogTitle>Metadata</AlertDialogTitle>
+  1783→          </AlertDialogHeader>
+  1784→          <pre className="surface-3 max-h-[40vh] overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap break-all">
+  1785→            {text}
+  1786→          </pre>
+  1787→          <AlertDialogFooter>
+  1788→            <AlertDialogAction>Close</AlertDialogAction>
+  1789→          </AlertDialogFooter>
+  1790→        </AlertDialogContent>
+  1791→      </AlertDialog>
+  1792→    </div>
+  1793→  )
+  1794→}
+  1795→
+  1796→/* ---------------- Roles ---------------- */
+  1797→
+  1798→function RolesTab() {
+  1799→  const [roles, setRoles] = useState<Role[]>([])
+  1800→  const [permissions, setPermissions] = useState<Permission[]>([])
+  1801→  const [loading, setLoading] = useState(true)
+  1802→  const [dialogOpen, setDialogOpen] = useState(false)
+  1803→  const [editing, setEditing] = useState<Role | null>(null)
+  1804→  const [name, setName] = useState('')
+  1805→  const [description, setDescription] = useState('')
+  1806→  const [color, setColor] = useState('brand')
+  1807→  const [selectedPerms, setSelectedPerms] = useState<Set<string>>(new Set())
+  1808→  const [busy, setBusy] = useState(false)
+  1809→  const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
+  1810→
+  1811→  async function fetchRoles() {
+  1812→    setLoading(true)
+  1813→    try {
+  1814→      const [r, p] = await Promise.all([
+  1815→        api.admin.listRoles(),
+  1816→        api.admin.listPermissions(),
+  1817→      ])
+  1818→      setRoles(r)
+  1819→      setPermissions(p)
+  1820→    } catch (err) {
+  1821→      toast.error(err instanceof ApiError ? err.message : 'Failed to load roles.')
+  1822→    } finally {
+  1823→      setLoading(false)
+  1824→    }
+  1825→  }
+  1826→
+  1827→  useEffect(() => {
+  1828→    fetchRoles()
+  1829→  }, [])
+  1830→
+  1831→  function openCreate() {
+  1832→    setEditing(null)
+  1833→    setName('')
+  1834→    setDescription('')
+  1835→    setColor('brand')
+  1836→    setSelectedPerms(new Set())
+  1837→    setDialogOpen(true)
+  1838→  }
+  1839→
+  1840→  function openEdit(role: Role) {
+  1841→    setEditing(role)
+  1842→    setName(role.name)
+  1843→    setDescription(role.description || '')
+  1844→    setColor(role.color || 'brand')
+  1845→    setSelectedPerms(new Set(role.permissions.map((p) => p.id)))
+  1846→    setDialogOpen(true)
+  1847→  }
+  1848→
+  1849→  async function save() {
+  1850→    if (!name.trim()) {
+  1851→      toast.error('Name is required.')
+  1852→      return
+  1853→    }
+  1854→    setBusy(true)
+  1855→    try {
+  1856→      const body = {
+  1857→        name: name.trim(),
+  1858→        description: description.trim() || undefined,
+  1859→        color,
+  1860→        permissionIds: [...selectedPerms],
+  1861→      }
+  1862→      if (editing) {
+  1863→        await api.admin.updateRole(editing.id, body)
+  1864→        toast.success('Role updated')
+  1865→      } else {
+  1866→        await api.admin.createRole(body)
+  1867→        toast.success('Role created')
+  1868→      }
+  1869→      setDialogOpen(false)
+  1870→      fetchRoles()
+  1871→    } catch (err) {
+  1872→      toast.error(err instanceof ApiError ? err.message : 'Save failed.')
+  1873→    } finally {
+  1874→      setBusy(false)
+  1875→    }
+  1876→  }
+  1877→
+  1878→  async function doDelete() {
+  1879→    if (!deleteTarget) return
+  1880→    setBusy(true)
+  1881→    try {
+  1882→      await api.admin.deleteRole(deleteTarget.id)
+  1883→      toast.success('Role deleted')
+  1884→      setDeleteTarget(null)
+  1885→      fetchRoles()
+  1886→    } catch (err) {
+  1887→      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+  1888→    } finally {
+  1889→      setBusy(false)
+  1890→    }
+  1891→  }
+  1892→
+  1893→  const permsByCategory = useMemo(() => {
+  1894→    const map = new Map<string, Permission[]>()
+  1895→    for (const p of permissions) {
+  1896→      const arr = map.get(p.category) || []
+  1897→      arr.push(p)
+  1898→      map.set(p.category, arr)
+  1899→    }
+  1900→    return [...map.entries()]
+  1901→  }, [permissions])
+  1902→
+  1903→  return (
+  1904→    <div className="space-y-4">
+  1905→      <Reveal variant={fadeUp}>
+  1906→        <div className="flex items-end justify-between gap-3">
+  1907→          <div>
+  1908→            <p className="font-mono text-xs text-brand">
+  1909→              <span className="text-muted-foreground">{'>'}</span> sudo roles
+  1910→            </p>
+  1911→            <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+  1912→              Roles &amp; Permissions
+  1913→            </h2>
+  1914→          </div>
+  1915→          <Button
+  1916→            onClick={openCreate}
+  1917→            className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+  1918→            size="sm"
+  1919→          >
+  1920→            <Plus className="h-3.5 w-3.5" /> Create Role
+  1921→          </Button>
+  1922→        </div>
+  1923→      </Reveal>
+  1924→
+  1925→      {loading ? (
+  1926→        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  1927→          {[0, 1, 2, 3, 4, 5].map((i) => (
+  1928→            <div key={i} className="shimmer surface h-44 rounded-xl" />
+  1929→          ))}
+  1930→        </div>
+  1931→      ) : roles.length === 0 ? (
+  1932→        <Reveal variant={fadeUp}>
+  1933→          <div className="surface rounded-xl p-10 text-center text-sm text-muted-foreground">
+  1934→            No custom roles.
+  1935→          </div>
+  1936→        </Reveal>
+  1937→      ) : (
+  1938→        <StaggerGroup
+  1939→          stagger={0.05}
+  1940→          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+  1941→        >
+  1942→          {roles.map((role) => {
+  1943→            const grouped = new Map<string, Permission[]>()
+  1944→            for (const p of role.permissions) {
+  1945→              const arr = grouped.get(p.category) || []
+  1946→              arr.push(p)
+  1947→              grouped.set(p.category, arr)
+  1948→            }
+  1949→            const dotClass =
+  1950→              ROLE_COLOR_MAP[role.color || 'brand'] || 'bg-brand'
+  1951→            return (
+  1952→              <Reveal key={role.id} variant={fadeUp}>
+  1953→                <div className="surface lift flex h-full flex-col rounded-xl p-5">
+  1954→                  <div className="flex items-start justify-between gap-2">
+  1955→                    <div className="flex items-center gap-2">
+  1956→                      <span
+  1957→                        className={`h-2.5 w-2.5 rounded-full ${dotClass}`}
+  1958→                      />
+  1959→                      <h3 className="text-base font-semibold">{role.name}</h3>
+  1960→                      {role.isSystem && (
+  1961→                        <span className="font-mono rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+  1962→                          System
+  1963→                        </span>
+  1964→                      )}
+  1965→                    </div>
+  1966→                    <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+  1967→                      {role.userCount} users
+  1968→                    </span>
+  1969→                  </div>
+  1970→                  {role.description && (
+  1971→                    <p className="mt-2 text-xs text-muted-foreground">
+  1972→                      {role.description}
+  1973→                    </p>
+  1974→                  )}
+  1975→                  <div className="mt-3 flex-1 space-y-2">
+  1976→                    {[...grouped.entries()].map(([cat, perms]) => (
+  1977→                      <div key={cat}>
+  1978→                        <p className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+  1979→                          {cat}
+  1980→                        </p>
+  1981→                        <div className="mt-1 flex flex-wrap gap-1">
+  1982→                          {perms.map((p) => (
+  1983→                            <span
+  1984→                              key={p.id}
+  1985→                              className="font-mono text-[10px] rounded bg-muted px-1.5 py-0.5"
+  1986→                            >
+  1987→                              {p.name}
+  1988→                            </span>
+  1989→                          ))}
+  1990→                        </div>
+  1991→                      </div>
+  1992→                    ))}
+  1993→                    {role.permissions.length === 0 && (
+  1994→                      <p className="text-[11px] text-muted-foreground">
+  1995→                        No permissions assigned.
+  1996→                      </p>
+  1997→                    )}
+  1998→                  </div>
+  1999→                  <div className="mt-4 flex justify-end gap-2">
+  2000→                    <Button
+
+[showing lines 1-2000 of 3410; use offset=2001 with limit to continue reading]

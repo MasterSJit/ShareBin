@@ -23,6 +23,7 @@ import {
 } from '@/lib/paste-utils'
 import { toSafePaste, findPaste, invalidatePaste, invalidateUserPastes, recordView } from '@/lib/paste-access'
 import { getUserLimits, isExpiryAllowed, checkMonthlyLimit, checkStorageLimit, incrementMonthlyPastes } from '@/lib/rbac'
+import { runCleanup, hardDeletePaste } from '@/lib/cleanup'
 
 // PUT /api/paste — create a text paste
 export async function PUT(req: NextRequest) {
@@ -244,11 +245,9 @@ export async function DELETE(req: NextRequest) {
     return forbidden('Not the owner')
   }
 
-  await db.paste.update({ where: { id: paste.id }, data: { isDeleted: true } })
-  invalidatePaste(paste.slug)
-  invalidatePaste(paste.id)
-  if (paste.ownerId) invalidateUserPastes(paste.ownerId)
-  return ok('Paste deleted', [])
+  // Hard-delete the paste (storage file + record + grants)
+  await hardDeletePaste(paste.id, 'admin', session.userId)
+  return ok('Paste permanently deleted', [])
 }
 
 // GET /api/paste — list (public/own) or get by id/slug
@@ -263,10 +262,25 @@ export async function GET(req: NextRequest) {
 
   const session = await getSession()
 
+  // Opportunistically run cleanup (expires old + burned pastes). Fire-and-forget.
+  runCleanup().catch(() => {})
+
   // Single paste fetch
   if (id) {
     const paste = await findPaste(id)
     if (!paste) return notFound('Paste not found')
+
+    // If expired, hard-delete it now and return 410
+    if (isExpired(paste.expiresAt)) {
+      await hardDeletePaste(paste.id, 'expired')
+      return gone('Paste has expired and been permanently deleted')
+    }
+
+    // If already burned, hard-delete it now and return 410
+    if (paste.isBurned) {
+      await hardDeletePaste(paste.id, 'burned')
+      return gone('Paste was burned after reading and has been permanently deleted')
+    }
 
     // Access control
     if (paste.visibility === 'private') {
@@ -284,8 +298,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (isExpired(paste.expiresAt) || paste.isBurned) return gone('Paste is gone')
-
     // Password gate
     const unlockedHeader = req.headers.get('x-unlocked') || ''
     const unlocked = new Set(unlockedHeader.split(',').filter(Boolean))
@@ -299,18 +311,29 @@ export async function GET(req: NextRequest) {
 
     recordView(paste.id)
 
-    // Burn-after-read: mark burned + clear content atomically (best-effort in SQLite)
+    // Burn-after-read: return content, increment views, then hard-delete the paste.
+    // The user gets the content in this response; the paste is permanently gone after.
     if (paste.burnAfterRead && !paste.isBurned) {
+      // Increment view count first
       await db.paste.update({
         where: { id: paste.id },
         data: { isBurned: true, viewCount: { increment: 1 } },
       })
       invalidatePaste(paste.slug)
       invalidatePaste(paste.id)
-    } else {
-      // Non-burn: increment view counter (flush job writes to DB; here we bump immediately too for demo)
-      await db.paste.update({ where: { id: paste.id }, data: { viewCount: { increment: 1 } } })
+      // Return the content to the user
+      const safePaste = toSafePaste(paste, { includeContent: true })
+      // Hard-delete after returning content (fire-and-forget with a small delay)
+      setTimeout(async () => {
+        try {
+          await hardDeletePaste(paste.id, 'burned')
+        } catch { /* ignore */ }
+      }, 100)
+      return ok('Paste fetched (burned after read)', [{ ...safePaste, isBurned: true }])
     }
+
+    // Non-burn: increment view counter immediately
+    await db.paste.update({ where: { id: paste.id }, data: { viewCount: { increment: 1 } } })
 
     return ok('Paste fetched', [toSafePaste(paste, { includeContent: true })])
   }

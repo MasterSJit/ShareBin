@@ -22,6 +22,7 @@ import {
 import { toSafePaste, invalidatePaste, invalidateUserPastes, findPaste } from '@/lib/paste-access'
 import { getStorage, buildStorageKey } from '@/lib/storage'
 import { getUserLimits, isExpiryAllowed, checkMonthlyLimit, checkStorageLimit, incrementMonthlyPastes } from '@/lib/rbac'
+import { hardDeletePaste } from '@/lib/cleanup'
 
 // PUT /api/file — multipart upload
 export async function PUT(req: NextRequest) {
@@ -149,6 +150,17 @@ export async function GET(req: NextRequest) {
   if (!paste) return notFound('File not found')
   if (paste.contentType !== 'file') return badRequest('Not a file paste')
 
+  // If expired, hard-delete it now
+  if (isExpired(paste.expiresAt)) {
+    await hardDeletePaste(paste.id, 'expired')
+    return gone('File has expired and been permanently deleted')
+  }
+  // If already burned, hard-delete it now
+  if (paste.isBurned) {
+    await hardDeletePaste(paste.id, 'burned')
+    return gone('File was burned after reading and has been permanently deleted')
+  }
+
   if (paste.visibility === 'private') {
     if (!session) return unauthorized('Login required')
     if (paste.ownerId !== session.userId && session.role !== 'admin') {
@@ -160,7 +172,6 @@ export async function GET(req: NextRequest) {
       if (!grant) return forbidden('No access')
     }
   }
-  if (isExpired(paste.expiresAt) || paste.isBurned) return gone('File is gone')
 
   const unlockedHeader = req.headers.get('x-unlocked') || ''
   const unlocked = new Set(unlockedHeader.split(',').filter(Boolean))
@@ -184,7 +195,7 @@ export async function GET(req: NextRequest) {
   const storage = getStorage()
   const buf = await storage.download(paste.storageKey!)
 
-  // burn-after-read
+  // burn-after-read: return the file, then hard-delete
   if (paste.burnAfterRead && !paste.isBurned) {
     await db.paste.update({
       where: { id: paste.id },
@@ -192,8 +203,12 @@ export async function GET(req: NextRequest) {
     })
     invalidatePaste(paste.slug)
     invalidatePaste(paste.id)
-    // also delete the storage object
-    await storage.delete(paste.storageKey!)
+    // Hard-delete after sending the response
+    setTimeout(async () => {
+      try {
+        await hardDeletePaste(paste.id, 'burned')
+      } catch { /* ignore */ }
+    }, 100)
   } else {
     await db.paste.update({ where: { id: paste.id }, data: { viewCount: { increment: 1 } } })
   }
@@ -233,13 +248,7 @@ export async function DELETE(req: NextRequest) {
     return forbidden('Not the owner')
   }
 
-  await db.paste.update({ where: { id: paste.id }, data: { isDeleted: true } })
-  invalidatePaste(paste.slug)
-  invalidatePaste(paste.id)
-  if (paste.ownerId) invalidateUserPastes(paste.ownerId)
-  // also delete storage object
-  if (paste.storageKey) {
-    await getStorage().delete(paste.storageKey)
-  }
-  return ok('File deleted', [])
+  // Hard-delete (storage file + record + grants)
+  await hardDeletePaste(paste.id, 'admin', session.userId)
+  return ok('File permanently deleted', [])
 }
