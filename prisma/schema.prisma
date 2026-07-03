@@ -29,6 +29,8 @@ model User {
   auditLogs    AuditLog[]
   subscriptions Subscription[]
   usageRecord  UsageRecord?
+  payments     Payment[]
+  invoices     Invoice[]
 }
 
 model Paste {
@@ -158,6 +160,7 @@ model Plan {
   updatedAt             DateTime @updatedAt
 
   subscriptions Subscription[]
+  payments     Payment[]
 }
 
 model Subscription {
@@ -189,4 +192,75 @@ model UsageRecord {
   totalPastes     Int      @default(0) // all-time paste count
   totalViews      Int      @default(0) // all-time views on user's pastes
   updatedAt       DateTime @updatedAt
+}
+
+// ============================================================
+// Ads System
+// ============================================================
+
+model Ad {
+  id          String   @id @default(cuid())
+  name        String   @unique // internal label
+  slot        String   @default("sidebar") // "header" | "sidebar" | "footer" | "between-cards" | "paste-top" | "paste-bottom"
+  adType      String   @default("html") // "html" | "image" | "adsense" | "custom"
+  content     String   // HTML / ad code / image URL
+  imageUrl    String?  // for image ads
+  linkUrl     String?  // click-through URL
+  isActive    Boolean  @default(true)
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([slot, isActive])
+}
+
+// ============================================================
+// Payments & Invoices
+// ============================================================
+
+model Payment {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId  String?
+  planId          String
+  plan            Plan     @relation(fields: [planId], references: [id])
+  amount          Float    @default(0) // in USD
+  currency        String   @default("USD")
+  status          String   @default("pending") // "pending" | "completed" | "failed" | "refunded"
+  method          String   @default("manual") // "manual" | "stripe" | "paypal" | "razorpay"
+  txnId           String?  @unique // transaction/gateway ID
+  invoiceNumber   String?  @unique
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoice         Invoice?
+
+  @@index([userId])
+  @@index([status])
+  @@index([planId])
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  paymentId   String   @unique
+  payment     Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  number      String   @unique
+  amount      Float
+  currency    String   @default("USD")
+  planName    String
+  periodStart DateTime
+  periodEnd   DateTime?
+  status      String   @default("issued") // "issued" | "paid" | "void"
+  pdfKey      String?  // storage key for generated PDF
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([status])
 }

@@ -141,6 +141,15 @@ export const api = {
       }
     }>('GET', '/api/me/limits'),
 
+  // Ads (public)
+  listAds: (slot?: string) =>
+    request<{
+      id: string; name: string; slot: string; adType: string
+      content: string; imageUrl: string | null; linkUrl: string | null
+    }>('GET', slot ? `/api/ads?slot=${encodeURIComponent(slot)}` : '/api/ads'),
+  adClick: (id: string) =>
+    request<unknown>('POST', '/api/ads/click', { body: { id } }),
+
   // Admin
   admin: {
     listUsers: (q?: string, status?: string) => {
@@ -172,6 +181,8 @@ export const api = {
 
     listAudit: (limit = 100) =>
       request<SafeAuditLog>('GET', `/api/admin/audit?limit=${limit}`),
+    clearAudit: () =>
+      request<unknown>('DELETE', '/api/admin/audit'),
 
     analytics: () =>
       request<{
@@ -259,5 +270,73 @@ export const api = {
     // Content CRUD (enhanced — supports title/desc/tags/language/textContent/viewCount/resetViews)
     editPaste: (id: string, patch: Record<string, unknown>) =>
       request<SafePaste>('PATCH', '/api/admin/paste', { body: { id, ...patch } }),
+
+    // Ads
+    listAds: () =>
+      request<{
+        id: string; name: string; slot: string; adType: string; content: string
+        imageUrl: string | null; linkUrl: string | null; isActive: boolean
+        impressions: number; clicks: number; startsAt: string | null
+        endsAt: string | null; createdAt: string
+      }>('GET', '/api/admin/ad'),
+    getAd: (id: string) =>
+      request<{
+        id: string; name: string; slot: string; adType: string; content: string
+        imageUrl: string | null; linkUrl: string | null; isActive: boolean
+        impressions: number; clicks: number; startsAt: string | null
+        endsAt: string | null; createdAt: string; updatedAt: string
+      }>('GET', `/api/admin/ad/${id}`),
+    createAd: (body: Record<string, unknown>) =>
+      request<unknown>('PUT', '/api/admin/ad', { body }),
+    updateAd: (id: string, patch: Record<string, unknown>) =>
+      request<unknown>('PATCH', '/api/admin/ad', { body: { id, ...patch } }),
+    deleteAd: (id: string) =>
+      request<unknown>('DELETE', '/api/admin/ad', { body: { id } }),
+
+    // Payments
+    listPayments: (status?: string) =>
+      request<{
+        id: string; userId: string
+        user: { email: string; displayName: string | null } | null
+        planId: string
+        plan: { name: string; monthlyPrice: number } | null
+        amount: number; currency: string; status: string; method: string
+        txnId: string | null; invoiceNumber: string | null
+        notes: string | null; createdAt: string
+      }>('GET', status ? `/api/admin/payment?status=${encodeURIComponent(status)}` : '/api/admin/payment'),
+    createPayment: (body: {
+      userId: string; planId: string; amount: number
+      method?: string; txnId?: string; notes?: string; status?: string
+    }) => request<unknown>('PUT', '/api/admin/payment', { body }),
+    updatePayment: (id: string, patch: Record<string, unknown>) =>
+      request<unknown>('PATCH', '/api/admin/payment', { body: { id, ...patch } }),
+    deletePayment: (id: string) =>
+      request<unknown>('DELETE', '/api/admin/payment', { body: { id } }),
+
+    // Invoices
+    listInvoices: (userId?: string) =>
+      request<{
+        id: string; number: string; paymentId: string; userId: string
+        user: { email: string; displayName: string | null } | null
+        amount: number; currency: string; planName: string
+        periodStart: string; periodEnd: string | null
+        status: string; createdAt: string
+      }>('GET', userId ? `/api/admin/invoice?userId=${encodeURIComponent(userId)}` : '/api/admin/invoice'),
+    getInvoice: (id: string) =>
+      request<{
+        invoice: {
+          id: string; number: string; paymentId: string; userId: string
+          amount: number; currency: string; planName: string
+          periodStart: string; periodEnd: string | null
+          status: string; pdfKey: string | null; createdAt: string
+        }
+        user: { id: string; email: string; displayName: string | null; role: string } | null
+        payment: {
+          id: string; amount: number; currency: string; status: string
+          method: string; txnId: string | null; invoiceNumber: string | null
+          notes: string | null; subscriptionId: string | null; createdAt: string
+          plan: { id: string; name: string; monthlyPrice: number } | null
+        } | null
+      }>('GET', `/api/admin/invoice/${id}`),
   },
 }

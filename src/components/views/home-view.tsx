@@ -134,7 +134,7 @@ export function HomeView() {
         name: 'Guest',
         allowedExpiryPresets: ['never', '10m', '1h', '1d'],
         allowCustomExpiry: false,
-        allowBurnAfterRead: false,
+        allowBurnAfterRead: true,
         allowPassword: false,
         allowPrivate: false,
         maxPasteSize: 1024 * 1024,

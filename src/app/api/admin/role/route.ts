@@ -4,6 +4,7 @@ import { ok, created, badRequest, unauthorized, forbidden, notFound, serverError
 import { getSession } from '@/lib/auth'
 import { hasPermission } from '@/lib/rbac'
 import { auditLog } from '@/lib/paste-utils'
+import { parseJsonBody } from '@/lib/parse-body'
 
 async function requireAdminWithPerm(perm: string) {
   const session = await getSession()
@@ -49,8 +50,8 @@ export async function PUT(req: NextRequest) {
   const { error, session } = await requireAdminWithPerm('admin:rbac')
   if (error || !session) return error
 
-  let body: { name?: string; description?: string; color?: string; permissionIds?: string[] } = {}
-  try { body = await req.json() } catch { return badRequest('Invalid JSON') }
+  const { data: body, error: jsonErr } = await parseJsonBody<{ name?: string; description?: string; color?: string; permissionIds?: string[] }>(req)
+  if (jsonErr || !body) return badRequest(jsonErr || 'Invalid JSON')
   if (!body.name) return badRequest('name is required')
 
   const existing = await db.role.findUnique({ where: { name: body.name } })
@@ -68,7 +69,6 @@ export async function PUT(req: NextRequest) {
   if (body.permissionIds?.length) {
     await db.rolePermission.createMany({
       data: body.permissionIds.map((pid) => ({ roleId: role.id, permissionId: pid })),
-      skipDuplicates: true,
     })
   }
 
@@ -81,8 +81,8 @@ export async function PATCH(req: NextRequest) {
   const { error, session } = await requireAdminWithPerm('admin:rbac')
   if (error || !session) return error
 
-  let body: { id?: string; name?: string; description?: string; color?: string; permissionIds?: string[] } = {}
-  try { body = await req.json() } catch { return badRequest('Invalid JSON') }
+  const { data: body, error: jsonErr2 } = await parseJsonBody<{ id?: string; name?: string; description?: string; color?: string; permissionIds?: string[] }>(req)
+  if (jsonErr2 || !body) return badRequest(jsonErr2 || 'Invalid JSON')
   if (!body.id) return badRequest('id is required')
 
   const role = await db.role.findUnique({ where: { id: body.id } })
@@ -105,7 +105,6 @@ export async function PATCH(req: NextRequest) {
     if (body.permissionIds.length) {
       await db.rolePermission.createMany({
         data: body.permissionIds.map((pid) => ({ roleId: body.id, permissionId: pid })),
-        skipDuplicates: true,
       })
     }
   }
@@ -119,8 +118,8 @@ export async function DELETE(req: NextRequest) {
   const { error, session } = await requireAdminWithPerm('admin:rbac')
   if (error || !session) return error
 
-  let body: { id?: string } = {}
-  try { body = await req.json() } catch { return badRequest('Invalid JSON') }
+  const { data: body, error: jsonErr3 } = await parseJsonBody<{ id?: string }>(req)
+  if (jsonErr3 || !body) return badRequest(jsonErr3 || 'Invalid JSON')
   if (!body.id) return badRequest('id is required')
 
   const role = await db.role.findUnique({ where: { id: body.id } })

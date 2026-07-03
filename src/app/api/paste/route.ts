@@ -24,6 +24,7 @@ import {
 import { toSafePaste, findPaste, invalidatePaste, invalidateUserPastes, recordView } from '@/lib/paste-access'
 import { getUserLimits, isExpiryAllowed, checkMonthlyLimit, checkStorageLimit, incrementMonthlyPastes } from '@/lib/rbac'
 import { runCleanup, hardDeletePaste } from '@/lib/cleanup'
+import { scanTextContent } from '@/lib/security-scan'
 
 // PUT /api/paste — create a text paste
 export async function PUT(req: NextRequest) {
@@ -88,6 +89,23 @@ export async function PUT(req: NextRequest) {
 
   if (!body.textContent || !body.textContent.trim()) {
     return badRequest('textContent is required')
+  }
+
+  // ---- Spam / malware scan ----
+  const spamScanEnabled = await getSetting<boolean>('spamScanEnabled')
+  if (spamScanEnabled !== false) {
+    const bannedWordsRaw = await getSetting<unknown>('bannedWords')
+    const bannedWords = Array.isArray(bannedWordsRaw)
+      ? bannedWordsRaw.filter((w): w is string => typeof w === 'string')
+      : typeof bannedWordsRaw === 'string' && bannedWordsRaw
+        ? bannedWordsRaw.split(',').map((w) => w.trim()).filter(Boolean)
+        : []
+    const scan = scanTextContent(body.textContent, { bannedWords })
+    if (!scan.safe) {
+      return badRequest('Content rejected by spam/malware scanner', [
+        { threats: scan.threats },
+      ])
+    }
   }
 
   // Per-paste size limit (text content size in bytes)

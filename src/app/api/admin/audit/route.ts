@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { ok, unauthorized, forbidden } from '@/lib/api-response'
 import { getSession } from '@/lib/auth'
+import { auditLog } from '@/lib/paste-utils'
 import type { SafeAuditLog } from '@/lib/types'
 
 // GET /api/admin/audit — list recent admin actions
@@ -39,4 +40,16 @@ function safeJson(s: string): unknown {
   } catch {
     return s
   }
+}
+
+// DELETE /api/admin/audit — clear all audit logs (admin only)
+export async function DELETE() {
+  const session = await getSession()
+  if (!session) return unauthorized('Authentication required')
+  if (session.role !== 'admin') return forbidden('Admin only')
+
+  await db.auditLog.deleteMany({})
+  // Record the clear action itself as a new entry.
+  await auditLog(session.userId, 'clear_audit_log', 'audit', 'all', {})
+  return ok('Audit log cleared', [])
 }

@@ -115,7 +115,7 @@ async function main() {
   for (const p of plans) {
     await db.plan.upsert({
       where: { name: p.name },
-      update: {},
+      update: { allowBurnAfterRead: true },
       create: p,
     })
     console.log(`Seeded plan: ${p.name}`)

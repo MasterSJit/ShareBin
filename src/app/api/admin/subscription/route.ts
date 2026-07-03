@@ -4,6 +4,7 @@ import { ok, created, badRequest, unauthorized, forbidden, notFound } from '@/li
 import { getSession } from '@/lib/auth'
 import { hasPermission, getExpiringSubscriptions, expireOverdueSubscriptions } from '@/lib/rbac'
 import { auditLog } from '@/lib/paste-utils'
+import { parseJsonBody } from '@/lib/parse-body'
 
 async function requirePerm(perm: string) {
   const session = await getSession()
@@ -66,8 +67,8 @@ export async function PUT(req: NextRequest) {
   const { error, session } = await requirePerm('admin:subscriptions')
   if (error || !session) return error
 
-  let body: { userId?: string; planId?: string; expiresAt?: string | null; status?: string } = {}
-  try { body = await req.json() } catch { return badRequest('Invalid JSON') }
+  const { data: body, error: je1 } = await parseJsonBody<{ userId?: string; planId?: string; expiresAt?: string | null; status?: string }>(req)
+  if (je1 || !body) return badRequest(je1 || 'Invalid JSON')
   if (!body.userId || !body.planId) return badRequest('userId and planId are required')
 
   const user = await db.user.findUnique({ where: { id: body.userId } })
@@ -104,8 +105,8 @@ export async function PATCH(req: NextRequest) {
   const { error, session } = await requirePerm('admin:subscriptions')
   if (error || !session) return error
 
-  let body: { id?: string; status?: string; expiresAt?: string | null; planId?: string } = {}
-  try { body = await req.json() } catch { return badRequest('Invalid JSON') }
+  const { data: body, error: je2 } = await parseJsonBody<{ id?: string; status?: string; expiresAt?: string | null; planId?: string }>(req)
+  if (je2 || !body) return badRequest(je2 || 'Invalid JSON')
   if (!body.id) return badRequest('id is required')
 
   const sub = await db.subscription.findUnique({ where: { id: body.id } })
@@ -135,8 +136,8 @@ export async function DELETE(req: NextRequest) {
   const { error, session } = await requirePerm('admin:subscriptions')
   if (error || !session) return error
 
-  let body: { id?: string } = {}
-  try { body = await req.json() } catch { return badRequest('Invalid JSON') }
+  const { data: body, error: je3 } = await parseJsonBody<{ id?: string }>(req)
+  if (je3 || !body) return badRequest(je3 || 'Invalid JSON')
   if (!body.id) return badRequest('id is required')
 
   const sub = await db.subscription.findUnique({ where: { id: body.id } })

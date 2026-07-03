@@ -67,8 +67,11 @@ import {
   CalendarPlus,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CreditCard,
   Database,
+  Download,
   Eye,
   FileText,
   Flag,
@@ -335,6 +338,14 @@ function deriveExpiryFromPaste(p: SafePaste): {
     dt.getDate(),
   )}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
   return { preset: 'custom', custom }
+}
+
+/** Format a Date into a value usable by `<input type="datetime-local">`. */
+function toLocalDatetime(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+    d.getDate(),
+  )}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export function AdminView() {
@@ -2287,123 +2298,326 @@ function Field({
 function AuditTab() {
   const [rows, setRows] = useState<SafeAuditLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  const [busy, setBusy] = useState(false)
+  const [clearOpen, setClearOpen] = useState(false)
+  const PAGE_SIZE = 20
+
+  async function fetchAudit() {
+    setLoading(true)
+    try {
+      const r = await api.admin.listAudit(100)
+      setRows(r)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to load audit log.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    let active = true
-    api.admin
-      .listAudit(100)
-      .then((r) => {
-        if (active) setRows(r)
-      })
-      .catch((err) => {
-        toast.error(err instanceof ApiError ? err.message : 'Failed to load audit log.')
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-    return () => {
-      active = false
-    }
+    fetchAudit()
   }, [])
 
+  // Reset to page 1 whenever the query changes.
+  useEffect(() => {
+    setPage(1)
+  }, [query])
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return rows
+    const q = query.trim().toLowerCase()
+    return rows.filter(
+      (r) =>
+        r.action.toLowerCase().includes(q) ||
+        r.targetId.toLowerCase().includes(q) ||
+        (r.adminEmail || '').toLowerCase().includes(q),
+    )
+  }, [rows, query])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const paged = filtered.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
+  )
+
+  function exportCsv() {
+    const headers = [
+      'time',
+      'admin',
+      'action',
+      'target_type',
+      'target_id',
+      'metadata',
+    ]
+    const esc = (s: string) => {
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return `"${s.replace(/"/g, '""')}"`
+      }
+      return s
+    }
+    const lines = [headers.join(',')]
+    for (const r of filtered) {
+      let meta = ''
+      if (r.metadata !== null && r.metadata !== undefined) {
+        try {
+          meta = typeof r.metadata === 'string' ? r.metadata : JSON.stringify(r.metadata)
+        } catch {
+          meta = String(r.metadata)
+        }
+      }
+      lines.push(
+        [
+          esc(r.createdAt),
+          esc(r.adminEmail || 'system'),
+          esc(r.action),
+          esc(r.targetType),
+          esc(r.targetId),
+          esc(meta),
+        ].join(','),
+      )
+    }
+    const csv = lines.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast.success(`Exported ${filtered.length} entries`)
+  }
+
+  async function doClear() {
+    setBusy(true)
+    try {
+      await api.admin.clearAudit()
+      toast.success('Audit log cleared')
+      setClearOpen(false)
+      await fetchAudit()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Clear failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <Reveal variant={fadeUp}>
-      <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
-        <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-surface-2">
-              <TableRow className="border-border hover:bg-transparent">
-                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Time
-                </TableHead>
-                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Admin
-                </TableHead>
-                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Action
-                </TableHead>
-                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Target
-                </TableHead>
-                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Target ID
-                </TableHead>
-                <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Metadata
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <motion.tbody
-              variants={staggerContainer(0.03)}
-              initial="hidden"
-              animate="show"
+    <div className="space-y-4">
+      <Reveal variant={fadeUp}>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="font-mono text-xs text-brand">
+              <span className="text-muted-foreground">{'>'}</span> sudo audit
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+              Audit Log
+            </h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-[11px]"
+              onClick={exportCsv}
+              disabled={loading || filtered.length === 0}
             >
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                    <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
-                    Loading audit log…
-                  </TableCell>
-                </TableRow>
-              ) : rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                    No audit entries yet.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                rows.map((a) => (
-                  <motion.tr
-                    key={a.id}
-                    variants={fadeUp}
-                    className="border-border border-b transition-colors hover:bg-surface-3"
-                  >
-                    <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
-                      {formatDate(a.createdAt)}
-                    </TableCell>
-                    <TableCell className="px-4 py-3">
-                      <span className="text-xs">{a.adminEmail || 'system'}</span>
-                    </TableCell>
-                    <TableCell className="px-4 py-3">
-                      <ActionBadge action={a.action} />
-                    </TableCell>
-                    <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
-                      {a.targetType}
-                    </TableCell>
-                    <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
-                      <span className="block max-w-[120px] truncate">
-                        {a.targetId}
-                      </span>
-                    </TableCell>
-                    <TableCell className="px-4 py-3">
-                      <MetadataCell data={a.metadata} />
-                    </TableCell>
-                  </motion.tr>
-                ))
-              )}
-            </motion.tbody>
-          </Table>
+              <Download className="h-3.5 w-3.5" /> Export CSV
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-[11px] text-destructive hover:text-destructive"
+              onClick={() => setClearOpen(true)}
+              disabled={loading || rows.length === 0}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Clear All
+            </Button>
+          </div>
         </div>
-      </div>
-    </Reveal>
+      </Reveal>
+
+      <Reveal variant={fadeUp} delay={0.04}>
+        <div className="surface rounded-xl p-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter by action, target ID, or admin email…"
+              className={`${INPUT_CLASS} pl-9`}
+            />
+          </div>
+          <p className="font-mono mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+            {loading
+              ? 'Loading…'
+              : `${filtered.length} of ${rows.length} entries · page ${safePage}/${totalPages}`}
+          </p>
+        </div>
+      </Reveal>
+
+      <Reveal variant={fadeUp} delay={0.05}>
+        <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Time
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Admin
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Action
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Target
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Target ID
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Metadata
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <motion.tbody
+                key={`page-${safePage}`}
+                variants={staggerContainer(0.02)}
+                initial="hidden"
+                animate="show"
+              >
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+                      Loading audit log…
+                    </TableCell>
+                  </TableRow>
+                ) : paged.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                      No audit entries match.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  paged.map((a) => (
+                    <motion.tr
+                      key={a.id}
+                      variants={fadeUp}
+                      className="border-border border-b transition-colors hover:bg-surface-3"
+                    >
+                      <TableCell className="font-mono whitespace-nowrap px-4 py-3 text-[11px] text-muted-foreground">
+                        {formatDate(a.createdAt)}
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <span className="text-xs">{a.adminEmail || 'system'}</span>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <ActionBadge action={a.action} />
+                      </TableCell>
+                      <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                        {a.targetType}
+                      </TableCell>
+                      <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                        <span className="block max-w-[140px] truncate" title={a.targetId}>
+                          {a.targetId}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <MetadataCell data={a.metadata} />
+                      </TableCell>
+                    </motion.tr>
+                  ))
+                )}
+              </motion.tbody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          <div className="flex items-center justify-between gap-2 border-t border-border bg-surface-2 px-4 py-2">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              Page {safePage} of {totalPages}
+            </p>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" /> Prev
+              </Button>
+              <span className="font-mono px-2 text-[11px] text-foreground">
+                {safePage}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Reveal>
+
+      <AlertDialog
+        open={clearOpen}
+        onOpenChange={(o) => !o && !busy && setClearOpen(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all audit logs?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes every audit entry. The clear action
+              itself will be recorded as a new entry. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={doClear}
+              disabled={busy}
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                'Clear all'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   )
 }
 
 function ActionBadge({ action }: { action: string }) {
   const lower = action.toLowerCase()
-  if (lower.includes('delete'))
+  if (lower.includes('delete') || lower.includes('clear'))
     return (
       <span className="inline-flex items-center rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
         {action}
       </span>
     )
-  if (lower.includes('ban') || lower.includes('suspend'))
+  if (lower.includes('ban') || lower.includes('suspend') || lower.includes('cancel'))
     return (
       <span className="inline-flex items-center rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
         {action}
       </span>
     )
-  if (lower.includes('update') || lower.includes('edit') || lower.includes('set'))
+  if (lower.includes('update') || lower.includes('edit') || lower.includes('set') || lower.includes('assign') || lower.includes('extend') || lower.includes('change'))
     return (
       <span className="inline-flex items-center rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
         {action}
@@ -2417,45 +2631,54 @@ function ActionBadge({ action }: { action: string }) {
 }
 
 function MetadataCell({ data }: { data: unknown }) {
-  const [open, setOpen] = useState(false)
-  const text = useMemo(() => {
-    if (data === null || data === undefined) return ''
-    if (typeof data === 'string') return data
-    try {
-      return JSON.stringify(data)
-    } catch {
-      return String(data)
+  const entries = useMemo<[string, string][]>(() => {
+    if (data === null || data === undefined) return []
+    if (typeof data === 'string') {
+      const trimmed = data.trim()
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            return Object.entries(parsed as Record<string, unknown>).map(
+              ([k, v]) => [
+                k,
+                typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v),
+              ],
+            )
+          }
+          return [['value', JSON.stringify(parsed)]]
+        } catch {
+          // fall through
+        }
+      }
+      return [['value', data]]
     }
+    if (Array.isArray(data)) {
+      return [['value', JSON.stringify(data)]]
+    }
+    if (typeof data === 'object') {
+      return Object.entries(data as Record<string, unknown>).map(([k, v]) => [
+        k,
+        typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v),
+      ])
+    }
+    return [['value', String(data)]]
   }, [data])
 
-  if (!text) return <span className="text-[11px] text-muted-foreground">—</span>
+  if (entries.length === 0)
+    return <span className="text-[11px] text-muted-foreground">—</span>
 
   return (
-    <div className="flex items-center gap-1">
-      <span className="max-w-[160px] truncate font-mono text-[11px] text-muted-foreground">
-        {text}
-      </span>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6"
-        onClick={() => setOpen(true)}
-      >
-        <Eye className="h-3 w-3" />
-      </Button>
-      <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Metadata</AlertDialogTitle>
-          </AlertDialogHeader>
-          <pre className="surface-3 max-h-[40vh] overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap break-all">
-            {text}
-          </pre>
-          <AlertDialogFooter>
-            <AlertDialogAction>Close</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+    <div className="space-y-0.5">
+      {entries.map(([k, v]) => (
+        <div
+          key={k}
+          className="font-mono text-[10px] leading-tight break-all"
+        >
+          <span className="text-muted-foreground">{k}:</span>{' '}
+          <span className="text-foreground">{v}</span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -3352,6 +3575,18 @@ function SubscriptionsTab() {
   const [expiresAt, setExpiresAt] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // Change Plan dialog
+  const [changePlanOpen, setChangePlanOpen] = useState(false)
+  const [changePlanTarget, setChangePlanTarget] = useState<Subscription | null>(null)
+  const [changePlanId, setChangePlanId] = useState('')
+  const [changePlanExpiresAt, setChangePlanExpiresAt] = useState('')
+  const [changePlans, setChangePlans] = useState<Plan[]>([])
+
+  // Extend dialog
+  const [extendOpen, setExtendOpen] = useState(false)
+  const [extendTarget, setExtendTarget] = useState<Subscription | null>(null)
+  const [extendExpiresAt, setExtendExpiresAt] = useState('')
+
   async function fetchSubs() {
     setLoading(true)
     try {
@@ -3382,10 +3617,16 @@ function SubscriptionsTab() {
         api.admin.listUsers(),
         api.admin.listPlans(),
       ])
-      setUsers(u)
-      setPlans([...p].sort((a, b) => a.sortOrder - b.sortOrder))
+      // Hide admin users from plan assignment.
+      const nonAdmins = u.filter((usr) => usr.role !== 'admin')
+      // Hide any special "Admin" plan from the dropdown.
+      const regularPlans = p.filter(
+        (plan) => plan.name.toLowerCase() !== 'admin',
+      )
+      setUsers(nonAdmins)
+      setPlans([...regularPlans].sort((a, b) => a.sortOrder - b.sortOrder))
       setUserId('')
-      setPlanId(p[0]?.id || '')
+      setPlanId(regularPlans[0]?.id || '')
       setExpiresAt('')
       setUserQuery('')
       setDialogOpen(true)
@@ -3422,28 +3663,6 @@ function SubscriptionsTab() {
     }
   }
 
-  async function extend(sub: Subscription, days: number) {
-    const now = Date.now()
-    let base: number
-    if (sub.expiresAt) {
-      const e = new Date(sub.expiresAt).getTime()
-      base = e > now ? e : now
-    } else {
-      base = now
-    }
-    const next = new Date(base + days * 86400000).toISOString()
-    try {
-      await api.admin.updateSubscription(sub.id, {
-        status: 'active',
-        expiresAt: next,
-      })
-      toast.success(`Extended by ${days} days`)
-      fetchSubs()
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Extend failed.')
-    }
-  }
-
   async function cancel(sub: Subscription) {
     try {
       await api.admin.cancelSubscription(sub.id)
@@ -3454,32 +3673,104 @@ function SubscriptionsTab() {
     }
   }
 
-  async function changePlan(sub: Subscription) {
+  async function openChangePlan(sub: Subscription) {
+    setChangePlanTarget(sub)
+    setChangePlanId(sub.planId)
+    setChangePlanExpiresAt('')
     try {
       const all = await api.admin.listPlans()
-      const active = all.filter((p) => p.isActive)
-      const next = active.find((p) => p.id !== sub.planId) || active[0]
-      if (!next) {
-        toast.error('No active plans available.')
-        return
+      // Only show active, non-Admin plans.
+      const active = all.filter(
+        (p) => p.isActive && p.name.toLowerCase() !== 'admin',
+      )
+      const sorted = [...active].sort((a, b) => a.sortOrder - b.sortOrder)
+      setChangePlans(sorted)
+      if (!sorted.find((p) => p.id === sub.planId)) {
+        setChangePlanId(sorted[0]?.id || '')
       }
-      await api.admin.updateSubscription(sub.id, {
-        planId: next.id,
+      setChangePlanOpen(true)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to load plans.')
+    }
+  }
+
+  async function saveChangePlan() {
+    if (!changePlanTarget) return
+    if (!changePlanId) {
+      toast.error('Pick a plan.')
+      return
+    }
+    setBusy(true)
+    try {
+      await api.admin.updateSubscription(changePlanTarget.id, {
+        planId: changePlanId,
         status: 'active',
+        expiresAt: changePlanExpiresAt
+          ? new Date(changePlanExpiresAt).toISOString()
+          : null,
       })
-      toast.success(`Plan changed to ${next.name}`)
+      toast.success('Plan changed')
+      setChangePlanOpen(false)
       fetchSubs()
     } catch (err) {
       toast.error(
         err instanceof ApiError ? err.message : 'Change plan failed.',
       )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function openExtend(sub: Subscription) {
+    setExtendTarget(sub)
+    // Pre-fill with current expiry, or +30 days from now if null.
+    const base = sub.expiresAt
+      ? new Date(sub.expiresAt)
+      : new Date(Date.now() + 30 * 86400000)
+    setExtendExpiresAt(toLocalDatetime(base))
+    setExtendOpen(true)
+  }
+
+  function quickExtend(days: number | 'lifetime') {
+    if (days === 'lifetime') {
+      setExtendExpiresAt('')
+      return
+    }
+    const now = Date.now()
+    const curMs = extendTarget?.expiresAt
+      ? new Date(extendTarget.expiresAt).getTime()
+      : now
+    const baseMs = curMs > now ? curMs : now
+    const next = new Date(baseMs + days * 86400000)
+    setExtendExpiresAt(toLocalDatetime(next))
+  }
+
+  async function saveExtend() {
+    if (!extendTarget) return
+    setBusy(true)
+    try {
+      await api.admin.updateSubscription(extendTarget.id, {
+        status: 'active',
+        expiresAt: extendExpiresAt
+          ? new Date(extendExpiresAt).toISOString()
+          : null,
+      })
+      toast.success('Subscription extended')
+      setExtendOpen(false)
+      fetchSubs()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Extend failed.')
+    } finally {
+      setBusy(false)
     }
   }
 
   const filteredUsers = useMemo(() => {
-    if (!userQuery.trim()) return users.slice(0, 50)
+    // Admin users are already excluded in openAssign; double-check here too.
+    const nonAdmins = users.filter((u) => u.role !== 'admin')
+    if (!userQuery.trim()) return nonAdmins.slice(0, 50)
     const q = userQuery.toLowerCase()
-    return users
+    return nonAdmins
       .filter(
         (u) =>
           u.email.toLowerCase().includes(q) ||
@@ -3659,13 +3950,10 @@ function SubscriptionsTab() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem
-                              onClick={() => extend(s, 30)}
-                            >
-                              <CalendarPlus className="h-3.5 w-3.5" /> Extend 30
-                              days
+                            <DropdownMenuItem onClick={() => openExtend(s)}>
+                              <CalendarPlus className="h-3.5 w-3.5" /> Extend
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => changePlan(s)}>
+                            <DropdownMenuItem onClick={() => openChangePlan(s)}>
                               <CreditCard className="h-3.5 w-3.5" /> Change plan
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
@@ -3688,6 +3976,7 @@ function SubscriptionsTab() {
         </div>
       </Reveal>
 
+      {/* Assign dialog */}
       <Dialog
         open={dialogOpen}
         onOpenChange={(o) => !busy && setDialogOpen(o)}
@@ -3696,7 +3985,7 @@ function SubscriptionsTab() {
           <DialogHeader>
             <DialogTitle>Assign subscription</DialogTitle>
             <DialogDescription>
-              Grant a plan to a user. Leave expiry blank for lifetime.
+              Grant a plan to a non-admin user. Leave expiry blank for lifetime.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -3788,6 +4077,160 @@ function SubscriptionsTab() {
                 <Plus className="h-3.5 w-3.5" />
               )}
               Assign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Plan dialog */}
+      <Dialog
+        open={changePlanOpen}
+        onOpenChange={(o) => !busy && setChangePlanOpen(o)}
+      >
+        <DialogContent className="surface-2 max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Change plan</DialogTitle>
+            <DialogDescription>
+              {changePlanTarget && (
+                <>
+                  Update plan for{' '}
+                  <span className="font-mono text-foreground">
+                    {changePlanTarget.user?.email || 'unknown'}
+                  </span>
+                  . Leave expiry blank for lifetime.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Field label="Plan">
+              <Select value={changePlanId} onValueChange={setChangePlanId}>
+                <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                  <SelectValue placeholder="Select plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  {changePlans.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}{' '}
+                      {p.monthlyPrice > 0
+                        ? `($${p.monthlyPrice.toFixed(2)}/mo)`
+                        : '(Free)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Expires at (optional, blank = lifetime)">
+              <Input
+                type="datetime-local"
+                value={changePlanExpiresAt}
+                onChange={(e) => setChangePlanExpiresAt(e.target.value)}
+                className={INPUT_CLASS}
+              />
+            </Field>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setChangePlanOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveChangePlan}
+              disabled={busy}
+              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save plan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Extend dialog */}
+      <Dialog
+        open={extendOpen}
+        onOpenChange={(o) => !busy && setExtendOpen(o)}
+      >
+        <DialogContent className="surface-2 max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Extend subscription</DialogTitle>
+            <DialogDescription>
+              {extendTarget && (
+                <>
+                  Extend expiry for{' '}
+                  <span className="font-mono text-foreground">
+                    {extendTarget.user?.email || 'unknown'}
+                  </span>
+                  . Pick a date or use a quick preset.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Field label="Quick presets">
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: '+30 days', days: 30 as const },
+                  { label: '+90 days', days: 90 as const },
+                  { label: '+1 year', days: 365 as const },
+                ].map((opt) => (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => quickExtend(opt.days)}
+                    className="font-mono rounded-md border border-border bg-surface-3 px-2.5 py-1 text-[10px] uppercase tracking-wider transition-colors hover:bg-surface-2 hover:text-foreground"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => quickExtend('lifetime')}
+                  className={`font-mono rounded-md border px-2.5 py-1 text-[10px] uppercase tracking-wider transition-colors ${
+                    extendExpiresAt === ''
+                      ? 'border-brand bg-brand/10 text-brand'
+                      : 'border-border bg-surface-3 hover:bg-surface-2 hover:text-foreground'
+                  }`}
+                >
+                  Lifetime
+                </button>
+              </div>
+            </Field>
+            <Field label="Expires at (blank = lifetime)">
+              <Input
+                type="datetime-local"
+                value={extendExpiresAt}
+                onChange={(e) => setExtendExpiresAt(e.target.value)}
+                className={INPUT_CLASS}
+              />
+            </Field>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setExtendOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveExtend}
+              disabled={busy}
+              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CalendarPlus className="h-3.5 w-3.5" />
+              )}
+              Extend
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -178,31 +178,15 @@
 
 /* ===================== SURFACES (solid, layered) ===================== */
 /* Elevated panel with a subtle top-edge highlight — replaces glassmorphism */
+/* NOTE: Do NOT set `position: relative` here — it overrides Tailwind's `fixed`
+ * on dialogs. Use Tailwind's `relative` utility where needed for ::before. */
 .surface {
   background: var(--surface);
   border: 1px solid var(--border);
-  position: relative;
-}
-.surface::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, oklch(1 0 0 / 0.08), transparent);
-  pointer-events: none;
 }
 .surface-2 {
   background: var(--surface-2);
   border: 1px solid var(--border);
-  position: relative;
-}
-.surface-2::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, oklch(1 0 0 / 0.1), transparent);
-  pointer-events: none;
 }
 .surface-3 {
   background: var(--surface-3);
@@ -367,7 +351,7 @@
 }
 
 /* ===================== MODERN FORM FIELDS ===================== */
-/* Filled-style field with animated bottom accent bar + focus glow */
+/* Filled-style field with floating label + animated bottom accent bar */
 .field {
   position: relative;
   --field-glow: 0;
@@ -377,14 +361,14 @@
   background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  padding: 0.625rem 0.875rem;
+  padding: 1.25rem 0.875rem 0.5rem 0.875rem;
   font-size: 0.875rem;
   color: var(--foreground);
   transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
   outline: none;
 }
 .field-input::placeholder {
-  color: oklch(0.5 0.008 240);
+  color: transparent;
 }
 .field-input:hover {
   border-color: oklch(1 0 0 / 0.15);
@@ -411,8 +395,18 @@
 .field-input:focus ~ .field-bar {
   transform: scaleX(1);
 }
+/* Floating label — works for both .field-input and .field-float-input */
+.field-input:focus + .field-float-label,
+.field-input:not(:placeholder-shown) + .field-float-label,
+.field-float-input:focus + .field-float-label,
+.field-float-input:not(:placeholder-shown) + .field-float-label {
+  top: 0.5rem;
+  transform: translateY(0);
+  font-size: 0.625rem;
+  color: var(--brand);
+}
 
-/* Floating-label field */
+/* Floating-label field (legacy alias) */
 .field-float {
   position: relative;
 }
@@ -426,7 +420,9 @@
   color: var(--foreground);
   transition: border-color 0.25s ease, box-shadow 0.25s ease;
   outline: none;
-  peer-placeholder-shown: '';
+}
+.field-float-input::placeholder {
+  color: transparent;
 }
 .field-float-input:focus {
   border-color: var(--brand);
@@ -437,7 +433,6 @@
   left: 0.875rem;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 0.8125rem;
   color: oklch(0.5 0.008 240);
   pointer-events: none;
   transition: all 0.2s ease;
@@ -445,13 +440,6 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 0.6875rem;
-}
-.field-float-input:focus + .field-float-label,
-.field-float-input:not(:placeholder-shown) + .field-float-label {
-  top: 0.5rem;
-  transform: translateY(0);
-  font-size: 0.625rem;
-  color: var(--brand);
 }
 
 /* ===================== TICKER / MARQUEE ===================== */

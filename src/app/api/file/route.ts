@@ -23,6 +23,7 @@ import { toSafePaste, invalidatePaste, invalidateUserPastes, findPaste } from '@
 import { getStorage, buildStorageKey } from '@/lib/storage'
 import { getUserLimits, isExpiryAllowed, checkMonthlyLimit, checkStorageLimit, incrementMonthlyPastes } from '@/lib/rbac'
 import { hardDeletePaste } from '@/lib/cleanup'
+import { scanFileName, scanFileContent, mergeScanResults } from '@/lib/security-scan'
 
 // PUT /api/file — multipart upload
 export async function PUT(req: NextRequest) {
@@ -102,6 +103,20 @@ export async function PUT(req: NextRequest) {
   if (expiresAt && expiresAt.getTime() < Date.now()) return badRequest('Expiry in the past')
 
   const buf = Buffer.from(await file.arrayBuffer())
+
+  // ---- Spam / malware scan (file name + MIME + bytes) ----
+  const spamScanEnabled = await getSetting<boolean>('spamScanEnabled')
+  if (spamScanEnabled !== false) {
+    const nameScan = scanFileName(file.name, file.type || '')
+    const contentScan = scanFileContent(buf, file.type || '')
+    const merged = mergeScanResults([nameScan, contentScan])
+    if (!merged.safe) {
+      return badRequest('File rejected by spam/malware scanner', [
+        { threats: merged.threats },
+      ])
+    }
+  }
+
   const storageKey = buildStorageKey(file.name)
   const storage = getStorage()
   await storage.upload(storageKey, buf, file.type || 'application/octet-stream')

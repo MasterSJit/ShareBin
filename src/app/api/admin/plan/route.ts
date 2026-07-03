@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { ok, created, badRequest, unauthorized, forbidden, notFound } from '@/lib/api-response'
 import { getSession } from '@/lib/auth'
 import { hasPermission } from '@/lib/rbac'
+import { parseJsonBody } from '@/lib/parse-body'
 import { auditLog } from '@/lib/paste-utils'
 
 async function requirePerm(perm: string) {
@@ -48,8 +49,8 @@ export async function PUT(req: NextRequest) {
   const { error, session } = await requirePerm('admin:plans')
   if (error || !session) return error
 
-  let body: Record<string, unknown> = {}
-  try { body = await req.json() } catch { return badRequest('Invalid JSON') }
+  const { data: body, error: je1 } = await parseJsonBody(req)
+  if (je1 || !body) return badRequest(je1 || 'Invalid JSON')
   if (!body.name) return badRequest('name is required')
 
   const existing = await db.plan.findUnique({ where: { name: String(body.name) } })
@@ -83,8 +84,8 @@ export async function PATCH(req: NextRequest) {
   const { error, session } = await requirePerm('admin:plans')
   if (error || !session) return error
 
-  let body: Record<string, unknown> = {}
-  try { body = await req.json() } catch { return badRequest('Invalid JSON') }
+  const { data: body, error: je2 } = await parseJsonBody(req)
+  if (je2 || !body) return badRequest(je2 || 'Invalid JSON')
   if (!body.id) return badRequest('id is required')
 
   const plan = await db.plan.findUnique({ where: { id: String(body.id) } })
@@ -111,8 +112,8 @@ export async function DELETE(req: NextRequest) {
   const { error, session } = await requirePerm('admin:plans')
   if (error || !session) return error
 
-  let body: { id?: string } = {}
-  try { body = await req.json() } catch { return badRequest('Invalid JSON') }
+  const { data: body, error: je3 } = await parseJsonBody<{ id?: string }>(req)
+  if (je3 || !body) return badRequest(je3 || 'Invalid JSON')
   if (!body.id) return badRequest('id is required')
 
   const plan = await db.plan.findUnique({ where: { id: body.id } })

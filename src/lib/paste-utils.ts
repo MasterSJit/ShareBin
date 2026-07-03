@@ -110,9 +110,42 @@ const SETTING_DEFAULTS: Record<string, unknown> = {
   // SEO
   metaTitleTemplate: '{title} — PasteShare',
   metaDescriptionTemplate: 'A public paste on PasteShare.',
+  metaKeywords: 'pastebin, code share, syntax highlighting',
+  canonicalUrl: '', // base URL for canonical links
+  ogType: 'website',
+  ogImage: '', // URL to default OG image
+  twitterCard: 'summary_large_image',
+  twitterSite: '', // @username
   sitemapEnabled: true,
   robotsTxt: 'User-agent: *\nAllow: /\nDisallow: /api/',
   openGraphDefaults: { type: 'website', siteName: 'PasteShare' },
+  // Verification & Analytics
+  googleSiteVerification: '', // meta tag content
+  googleAnalyticsId: '', // G-XXXXXXXX
+  googleSearchConsoleUrl: '',
+  bingSiteVerification: '',
+  // Captcha
+  captchaEnabled: false,
+  captchaProvider: 'none', // 'none' | 'recaptcha' | 'turnstile' | 'hcaptcha'
+  captchaSiteKey: '',
+  captchaSecretKey: '',
+  // Ads settings
+  adsEnabled: false,
+  adsenseClient: '', // ca-pub-XXXXXXXX
+  // Performance
+  cdnEnabled: false,
+  cdnUrl: '',
+  cacheTtl: 3600,
+  enableGzip: true,
+  // Logo & Branding
+  logoUrl: '/logo.svg',
+  faviconUrl: '/logo.svg',
+  // Social
+  socialLinks: {}, // {twitter, github, discord, etc.}
+  // Spam/malware scanning
+  bannedWords: [], // array of strings blocked in paste text content
+  bannedFileExtensions: 'exe,bat,cmd,com,scr,msi,vbs,ps1,sh,so,dll', // comma list
+  spamScanEnabled: true,
 }
 
 export async function getSettings(): Promise<Record<string, unknown>> {

@@ -96,7 +96,7 @@ export const FREE_LIMITS: PlanLimits = {
   maxPastesPerMonth: 10,
   allowedExpiryPresets: ['never', '10m', '1h', '1d'],
   allowCustomExpiry: false,
-  allowBurnAfterRead: false,
+  allowBurnAfterRead: true, // free for everyone
   allowPassword: false,
   allowPrivate: false,
   allowFileUpload: false,
