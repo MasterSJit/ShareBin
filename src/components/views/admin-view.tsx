@@ -69,6 +69,8 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Code2,
+  Copy,
   CreditCard,
   Database,
   Download,
@@ -77,7 +79,9 @@ import {
   FileText,
   Flag,
   Flame,
+  Globe,
   HardDrive,
+  Key,
   Loader2,
   Lock,
   Megaphone,
@@ -94,6 +98,7 @@ import {
   Shield,
   ShieldAlert,
   Trash2,
+  UserPlus,
   Users as UsersIcon,
   X,
 } from 'lucide-react'
@@ -434,6 +439,11 @@ function AdminInner() {
       icon: <SettingsIcon className="h-3.5 w-3.5" />,
     },
     {
+      value: 'api',
+      label: 'API',
+      icon: <Code2 className="h-3.5 w-3.5" />,
+    },
+    {
       value: 'audit',
       label: 'Audit Log',
       icon: <ShieldAlert className="h-3.5 w-3.5" />,
@@ -507,6 +517,9 @@ function AdminInner() {
           </TabsContent>
           <TabsContent value="settings" className="mt-0">
             <SettingsTab />
+          </TabsContent>
+          <TabsContent value="api" className="mt-0">
+            <ApiSettingsTab />
           </TabsContent>
           <TabsContent value="audit" className="mt-0">
             <AuditTab />
@@ -908,6 +921,8 @@ function UsersTab() {
     action: 'delete' | 'ban' | 'suspend'
   } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [userDialogOpen, setUserDialogOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<UserRow | null>(null)
 
   async function fetchUsers() {
     setLoading(true)
@@ -1027,6 +1042,16 @@ function UsersTab() {
           >
             <Search className="h-3.5 w-3.5" /> Search
           </Button>
+          <Button
+            onClick={() => {
+              setEditingUser(null)
+              setUserDialogOpen(true)
+            }}
+            className="bg-brand text-brand-foreground hover:bg-brand/90"
+            size="sm"
+          >
+            <UserPlus className="h-3.5 w-3.5" /> Add User
+          </Button>
         </div>
       </Reveal>
 
@@ -1122,6 +1147,15 @@ function UsersTab() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setEditingUser(u)
+                                  setUserDialogOpen(true)
+                                }}
+                              >
+                                <Pencil className="h-3.5 w-3.5" /> Edit details
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               {u.status !== 'active' && (
                                 <DropdownMenuItem
                                   onClick={() =>
@@ -1248,6 +1282,14 @@ function UsersTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Create / Edit user dialog */}
+      <UserDialog
+        open={userDialogOpen}
+        onOpenChange={setUserDialogOpen}
+        editingUser={editingUser}
+        onSaved={fetchUsers}
+      />
     </div>
   )
 }
@@ -6145,6 +6187,864 @@ function UsageTab() {
               </motion.tbody>
             </Table>
           </div>
+        </div>
+      </Reveal>
+    </div>
+  )
+}
+
+/* ---------------- User Dialog (Create / Edit) ---------------- */
+
+type UserDialogProps = {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  editingUser: UserRow | null
+  onSaved: () => void
+}
+
+function UserDialog({
+  open,
+  onOpenChange,
+  editingUser,
+  onSaved,
+}: UserDialogProps) {
+  const editing = !!editingUser
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [role, setRole] = useState<'user' | 'admin'>('user')
+  const [status, setStatus] = useState<
+    'active' | 'suspended' | 'banned' | 'pending_verification'
+  >('active')
+  const [autoVerify, setAutoVerify] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  // Reset the form whenever the dialog opens.
+  useEffect(() => {
+    if (!open) return
+    if (editingUser) {
+      setEmail(editingUser.email)
+      setDisplayName(editingUser.displayName ?? '')
+      setRole(editingUser.role === 'admin' ? 'admin' : 'user')
+      setStatus(editingUser.status)
+      setPassword('')
+      setAutoVerify(true)
+    } else {
+      setEmail('')
+      setPassword('')
+      setDisplayName('')
+      setRole('user')
+      setStatus('active')
+      setAutoVerify(true)
+    }
+  }, [open, editingUser])
+
+  async function save() {
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail) {
+      toast.error('Email is required.')
+      return
+    }
+    if (!editing && password.length < 8) {
+      toast.error('Password must be at least 8 characters.')
+      return
+    }
+    if (editing && password && password.length < 8) {
+      toast.error('Password must be at least 8 characters.')
+      return
+    }
+    setSaving(true)
+    try {
+      if (editing && editingUser) {
+        const patch: {
+          email: string
+          displayName: string
+          role: 'user' | 'admin'
+          status: 'active' | 'suspended' | 'banned' | 'pending_verification'
+          password?: string
+        } = {
+          email: trimmedEmail,
+          displayName: displayName.trim(),
+          role,
+          status,
+        }
+        if (password) patch.password = password
+        await api.admin.updateUser(editingUser.id, patch)
+        toast.success('User updated')
+      } else {
+        await api.admin.createUser({
+          email: trimmedEmail,
+          password,
+          displayName: displayName.trim() || undefined,
+          role,
+          status,
+          autoVerify,
+        })
+        toast.success('User created')
+      }
+      onSaved()
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Save failed.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="surface-2 max-h-[85vh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {editing ? (
+              <Pencil className="h-4 w-4 text-brand" />
+            ) : (
+              <UserPlus className="h-4 w-4 text-brand" />
+            )}
+            {editing ? 'Edit user' : 'Create user'}
+          </DialogTitle>
+          <DialogDescription>
+            {editing
+              ? `Update details for ${editingUser?.email}`
+              : 'Provision a new account. The user can log in immediately.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <Field label="Email">
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="user@example.com"
+              autoComplete="off"
+            />
+          </Field>
+
+          <Field label="Display name (optional)">
+            <Input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="Ada Lovelace"
+              autoComplete="off"
+            />
+          </Field>
+
+          <Field
+            label={
+              editing
+                ? 'New password (leave blank to keep current)'
+                : 'Password'
+            }
+          >
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={INPUT_CLASS}
+              placeholder={editing ? '••••••••' : 'Min 8 characters'}
+              autoComplete="new-password"
+            />
+          </Field>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Role">
+              <Select
+                value={role}
+                onValueChange={(v) => setRole(v as 'user' | 'admin')}
+              >
+                <SelectTrigger className={INPUT_CLASS}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">user</SelectItem>
+                  <SelectItem value="admin">admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select
+                value={status}
+                onValueChange={(v) =>
+                  setStatus(
+                    v as
+                      | 'active'
+                      | 'suspended'
+                      | 'banned'
+                      | 'pending_verification',
+                  )
+                }
+              >
+                <SelectTrigger className={INPUT_CLASS}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">active</SelectItem>
+                  <SelectItem value="pending_verification">
+                    pending_verification
+                  </SelectItem>
+                  <SelectItem value="suspended">suspended</SelectItem>
+                  <SelectItem value="banned">banned</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+
+          {!editing && (
+            <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border bg-surface-3/50 px-3 py-2.5">
+              <Checkbox
+                checked={autoVerify}
+                onCheckedChange={(c) => setAutoVerify(c === true)}
+              />
+              <span className="text-xs text-muted-foreground">
+                Auto-verify email (skip verification flow)
+              </span>
+            </label>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={save}
+            disabled={saving}
+            className="btn-shine gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+            size="sm"
+          >
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : editing ? (
+              <Save className="h-3.5 w-3.5" />
+            ) : (
+              <UserPlus className="h-3.5 w-3.5" />
+            )}
+            {editing ? 'Save changes' : 'Create user'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/* ---------------- API Settings ---------------- */
+
+type ApiDocsEndpoint = {
+  method: 'GET' | 'PUT' | 'POST' | 'PATCH' | 'DELETE'
+  path: string
+  description: string
+  auth: 'none' | 'optional' | 'required' | 'admin'
+  response: string
+  body?: Record<string, string>
+  query?: Record<string, string>
+}
+
+type ApiDocsPayload = {
+  baseUrl: string
+  auth: { type: string; description: string }
+  apiKey: { header: string; description: string }
+  responseFormat: { message: string; data: string }
+  statusCodes: { code: number; meaning: string }[]
+  endpoints: ApiDocsEndpoint[]
+}
+
+const METHOD_BADGE_CLASS: Record<ApiDocsEndpoint['method'], string> = {
+  PUT: 'bg-brand/15 text-brand',
+  POST: 'bg-brand-2/15 text-brand-2',
+  GET: 'bg-muted text-muted-foreground',
+  PATCH: 'bg-amber-500/15 text-amber-500',
+  DELETE: 'bg-destructive/15 text-destructive',
+}
+
+const AUTH_BADGE_CLASS: Record<ApiDocsEndpoint['auth'], string> = {
+  none: 'bg-muted text-muted-foreground',
+  optional: 'bg-amber-500/15 text-amber-500',
+  required: 'bg-brand/15 text-brand',
+  admin: 'bg-brand-2/15 text-brand-2',
+}
+
+const DEFAULT_STATUS_CODES: { code: number; meaning: string }[] = [
+  { code: 200, meaning: 'OK — request succeeded' },
+  { code: 201, meaning: 'Created — resource created successfully' },
+  { code: 400, meaning: 'Bad Request — malformed body or missing field' },
+  { code: 401, meaning: 'Unauthorized — authentication required or invalid' },
+  { code: 403, meaning: 'Forbidden — authenticated but not allowed' },
+  { code: 404, meaning: 'Not Found — resource does not exist' },
+  { code: 409, meaning: 'Conflict — duplicate resource' },
+  { code: 410, meaning: 'Gone — paste has expired or been burned' },
+  { code: 422, meaning: 'Unprocessable Entity — validation error' },
+  { code: 429, meaning: 'Too Many Requests — rate limit hit' },
+  { code: 500, meaning: 'Internal Server Error' },
+]
+
+const RESPONSE_FORMAT_EXAMPLE = `{
+  "message": "Paste created",
+  "data": [
+    { "id": "abc123", "slug": "k3Xy9", "textContent": "hello" }
+  ]
+}`
+
+function ApiSettingsTab() {
+  const me = useAppStore((s) => s.user)!
+  const setUser = useAppStore((s) => s.setUser)
+
+  const [apiEnabled, setApiEnabled] = useState(true)
+  const [apiRateLimit, setApiRateLimit] = useState(60)
+  const [apiRequireAuth, setApiRequireAuth] = useState(true)
+  const [apiCorsOrigins, setApiCorsOrigins] = useState('*')
+  const [apiWebhookUrl, setApiWebhookUrl] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  const [docs, setDocs] = useState<ApiDocsPayload | null>(null)
+  const [showKey, setShowKey] = useState(false)
+  const [keyBusy, setKeyBusy] = useState(false)
+  const [revokeOpen, setRevokeOpen] = useState(false)
+  const [codeTab, setCodeTab] = useState('curl')
+
+  useEffect(() => {
+    let active = true
+    api.admin
+      .getSettings()
+      .then((rows) => {
+        if (!active) return
+        const s = (rows[0] ?? {}) as Record<string, unknown>
+        setApiEnabled(s.apiEnabled !== false)
+        setApiRateLimit(
+          typeof s.apiRateLimit === 'number' ? s.apiRateLimit : 60,
+        )
+        setApiRequireAuth(s.apiRequireAuth !== false)
+        setApiCorsOrigins(
+          typeof s.apiCorsOrigins === 'string' && s.apiCorsOrigins
+            ? s.apiCorsOrigins
+            : '*',
+        )
+        setApiWebhookUrl(
+          typeof s.apiWebhookUrl === 'string' ? s.apiWebhookUrl : '',
+        )
+      })
+      .catch((err) => {
+        toast.error(
+          err instanceof ApiError ? err.message : 'Failed to load API settings.',
+        )
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    // Fetch the self-documenting API docs (public endpoint).
+    fetch('/api/docs')
+      .then((r) => r.json())
+      .then((env: { data: ApiDocsPayload[] }) => {
+        if (active && env.data && env.data[0]) setDocs(env.data[0])
+      })
+      .catch(() => {
+        /* non-fatal — docs panel just stays in default state */
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  async function save() {
+    setSaving(true)
+    try {
+      await api.admin.updateSettings({
+        apiEnabled,
+        apiRateLimit,
+        apiRequireAuth,
+        apiCorsOrigins,
+        apiWebhookUrl: apiWebhookUrl || null,
+      })
+      toast.success('API settings saved')
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Save failed.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function regenerateKey(isRevoke: boolean) {
+    setKeyBusy(true)
+    try {
+      const res = await api.admin.updateUser(me.id, { regenerateApiKey: true })
+      const updated = res[0]
+      if (updated) {
+        setUser({ ...me, apiKey: updated.apiKey })
+        toast.success(
+          isRevoke
+            ? 'Previous API key revoked — new key generated.'
+            : 'New API key generated.',
+        )
+        setShowKey(true)
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : 'Failed to rotate API key.',
+      )
+    } finally {
+      setKeyBusy(false)
+      setRevokeOpen(false)
+    }
+  }
+
+  async function copyText(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success(`${label} copied`)
+    } catch {
+      toast.error('Clipboard unavailable in this context.')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="surface rounded-2xl p-6">
+        <Loader2 className="h-5 w-5 animate-spin text-brand" />
+      </div>
+    )
+  }
+
+  const baseUrl =
+    typeof window !== 'undefined' ? window.location.origin + '/api' : '/api'
+  const apiKey = me.apiKey
+  const maskedKey = apiKey ? '•'.repeat(Math.min(apiKey.length, 28)) : ''
+
+  const codeExamples: { value: string; label: string; code: string }[] = [
+    {
+      value: 'curl',
+      label: 'cURL',
+      code: `curl -X PUT ${baseUrl}/paste \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: ${apiKey ?? 'YOUR_KEY'}" \\
+  -d '{"textContent":"hello"}'`,
+    },
+    {
+      value: 'javascript',
+      label: 'JavaScript',
+      code: `const res = await fetch('${baseUrl}/paste', {
+  method: 'PUT',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-api-key': '${apiKey ?? 'YOUR_KEY'}',
+  },
+  body: JSON.stringify({ textContent: 'hello' }),
+});
+const { data } = await res.json();
+console.log(data[0]);`,
+    },
+    {
+      value: 'python',
+      label: 'Python',
+      code: `import requests
+
+r = requests.put(
+    '${baseUrl}/paste',
+    json={'textContent': 'hello'},
+    headers={'x-api-key': '${apiKey ?? 'YOUR_KEY'}'},
+)
+print(r.json()['data'][0])`,
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+      {/* Section 1 — API Configuration */}
+      <Reveal variant={fadeUp}>
+        <div className="surface rounded-xl p-5">
+          <SectionHeader>API Configuration</SectionHeader>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="API enabled">
+              <div className="flex items-center gap-2 pt-1.5">
+                <Switch
+                  checked={apiEnabled}
+                  onCheckedChange={setApiEnabled}
+                />
+                <span className="text-xs text-muted-foreground">
+                  Enable external API access globally
+                </span>
+              </div>
+            </Field>
+            <Field label="Rate limit (req / min / key)">
+              <Input
+                type="number"
+                min={1}
+                value={apiRateLimit}
+                onChange={(e) =>
+                  setApiRateLimit(Math.max(1, Number(e.target.value || 0)))
+                }
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <Field label="Require authentication">
+              <div className="flex items-center gap-2 pt-1.5">
+                <Switch
+                  checked={apiRequireAuth}
+                  onCheckedChange={setApiRequireAuth}
+                />
+                <span className="text-xs text-muted-foreground">
+                  Require API key or session for all calls
+                </span>
+              </div>
+            </Field>
+            <Field label="Webhook URL (optional)">
+              <Input
+                type="url"
+                value={apiWebhookUrl}
+                onChange={(e) => setApiWebhookUrl(e.target.value)}
+                className={INPUT_CLASS}
+                placeholder="https://example.com/hooks/paste"
+              />
+            </Field>
+            <Field label="CORS origins (one per line, * for all)" full>
+              <Textarea
+                value={apiCorsOrigins}
+                onChange={(e) => setApiCorsOrigins(e.target.value)}
+                className={`${INPUT_CLASS} min-h-[80px] font-mono text-xs`}
+                placeholder={'*\nhttps://app.example.com'}
+              />
+            </Field>
+          </div>
+          <div className="mt-5 flex justify-end">
+            <Button
+              onClick={save}
+              disabled={saving}
+              className="btn-shine gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+              size="sm"
+            >
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save API settings
+            </Button>
+          </div>
+        </div>
+      </Reveal>
+
+      {/* Section 2 — API Documentation */}
+      <Reveal variant={fadeUp} delay={0.05}>
+        <div className="surface rounded-xl p-5">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <SectionHeader>API Documentation</SectionHeader>
+            <Button
+              onClick={() => copyText(baseUrl, 'Base URL')}
+              variant="outline"
+              size="sm"
+              className="border-border"
+            >
+              <Copy className="h-3.5 w-3.5" /> Copy base URL
+            </Button>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* Response format */}
+            <div className="space-y-2">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                Response format
+              </p>
+              <pre className="overflow-x-auto rounded-lg border border-border bg-surface-3 p-3 font-mono text-xs text-foreground">
+{RESPONSE_FORMAT_EXAMPLE}
+              </pre>
+              {docs && (
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  {docs.responseFormat.message}
+                  <br />
+                  {docs.responseFormat.data}
+                </p>
+              )}
+            </div>
+
+            {/* Auth methods */}
+            <div className="space-y-2">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+                Authentication
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-3 p-2.5">
+                  <Key className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs font-medium text-foreground">
+                      x-api-key header
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Send your API key in the{' '}
+                      <code className="font-mono text-foreground">x-api-key</code>{' '}
+                      header for non-browser clients.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-3 p-2.5">
+                  <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs font-medium text-foreground">
+                      Session cookie
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Browsers send the{' '}
+                      <code className="font-mono text-foreground">ps_session</code>{' '}
+                      cookie automatically (7-day TTL).
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Endpoints table */}
+          <div className="mt-5">
+            <p className="font-mono mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+              Endpoints{docs ? ` (${docs.endpoints.length})` : ''}
+            </p>
+            <div
+              className={`overflow-hidden rounded-lg border border-border ${SCROLLBAR_CLASS}`}
+            >
+              <div className={`max-h-96 overflow-y-auto ${SCROLLBAR_CLASS}`}>
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-surface-2">
+                    <TableRow className="border-border hover:bg-transparent">
+                      <TableHead className="font-mono px-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Method
+                      </TableHead>
+                      <TableHead className="font-mono px-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Path
+                      </TableHead>
+                      <TableHead className="font-mono px-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Description
+                      </TableHead>
+                      <TableHead className="font-mono px-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Auth
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {docs ? (
+                      docs.endpoints.map((e, i) => (
+                        <TableRow
+                          key={`${e.method}-${e.path}-${i}`}
+                          className="border-border"
+                        >
+                          <TableCell className="px-3 py-2">
+                            <span
+                              className={`inline-flex items-center rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold ${METHOD_BADGE_CLASS[e.method]}`}
+                            >
+                              {e.method}
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-mono px-3 py-2 text-xs text-foreground break-all">
+                            {e.path}
+                          </TableCell>
+                          <TableCell className="px-3 py-2 text-xs text-muted-foreground">
+                            {e.description}
+                          </TableCell>
+                          <TableCell className="px-3 py-2">
+                            <span
+                              className={`inline-flex items-center rounded-md px-1.5 py-0.5 font-mono text-[10px] ${AUTH_BADGE_CLASS[e.auth]}`}
+                            >
+                              {e.auth}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell
+                          colSpan={4}
+                          className="px-3 py-8 text-center text-xs text-muted-foreground"
+                        >
+                          Loading documentation…
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+
+          {/* Status codes */}
+          <div className="mt-5">
+            <p className="font-mono mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+              Status codes
+            </p>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <Table>
+                <TableHeader className="bg-surface-2">
+                  <TableRow className="border-border hover:bg-transparent">
+                    <TableHead className="font-mono px-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Code
+                    </TableHead>
+                    <TableHead className="font-mono px-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Meaning
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(docs?.statusCodes ?? DEFAULT_STATUS_CODES).map((s) => (
+                    <TableRow key={s.code} className="border-border">
+                      <TableCell className="font-mono px-3 py-1.5 text-xs font-bold text-foreground">
+                        {s.code}
+                      </TableCell>
+                      <TableCell className="px-3 py-1.5 text-xs text-muted-foreground">
+                        {s.meaning}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+      </Reveal>
+
+      {/* Section 3 — API Key Management */}
+      <Reveal variant={fadeUp} delay={0.1}>
+        <div className="surface rounded-xl p-5">
+          <SectionHeader>API Key Management</SectionHeader>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Use this key in the{' '}
+            <code className="font-mono text-foreground">x-api-key</code> header
+            for API requests.
+          </p>
+          <div className="rounded-lg border border-border bg-surface-3 p-3">
+            <div className="flex items-center gap-2">
+              <Key className="h-4 w-4 shrink-0 text-brand" />
+              <code className="flex-1 truncate font-mono text-xs text-foreground">
+                {apiKey
+                  ? showKey
+                    ? apiKey
+                    : maskedKey
+                  : 'No API key — generate one below.'}
+              </code>
+              {apiKey && (
+                <Button
+                  onClick={() => setShowKey((s) => !s)}
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  title={showKey ? 'Hide key' : 'Show key'}
+                >
+                  {showKey ? (
+                    <Eye className="h-3.5 w-3.5" />
+                  ) : (
+                    <Lock className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              )}
+              {apiKey && (
+                <Button
+                  onClick={() => copyText(apiKey, 'API key')}
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  title="Copy key"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              onClick={() => regenerateKey(false)}
+              disabled={keyBusy}
+              className="btn-shine gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
+              size="sm"
+            >
+              {keyBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
+              {apiKey ? 'Generate new key' : 'Generate API key'}
+            </Button>
+            {apiKey && (
+              <Button
+                onClick={() => setRevokeOpen(true)}
+                disabled={keyBusy}
+                variant="outline"
+                size="sm"
+                className="border-destructive/40 text-destructive hover:bg-destructive/10"
+              >
+                <Ban className="h-3.5 w-3.5" /> Revoke API key
+              </Button>
+            )}
+          </div>
+
+          <AlertDialog open={revokeOpen} onOpenChange={setRevokeOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Revoke API key?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The current key will be invalidated immediately. A fresh key
+                  is generated in its place — copy it if you still need API
+                  access, or leave it unused to effectively disable API access
+                  for this account.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={keyBusy}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => regenerateKey(true)}
+                  disabled={keyBusy}
+                  className="bg-destructive text-white hover:bg-destructive/90"
+                >
+                  {keyBusy ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  Revoke &amp; rotate
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </Reveal>
+
+      {/* Section 4 — Code Examples */}
+      <Reveal variant={fadeUp} delay={0.15}>
+        <div className="surface rounded-xl p-5">
+          <SectionHeader>Code Examples</SectionHeader>
+          <Tabs value={codeTab} onValueChange={setCodeTab}>
+            <TabsList className="bg-surface-3">
+              {codeExamples.map((e) => (
+                <TabsTrigger
+                  key={e.value}
+                  value={e.value}
+                  className="font-mono text-[11px] uppercase tracking-wider"
+                >
+                  {e.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {codeExamples.map((e) => (
+              <TabsContent key={e.value} value={e.value} className="mt-3">
+                <div className="relative">
+                  <pre className="overflow-x-auto rounded-lg border border-border bg-surface-3 p-3 pr-10 font-mono text-xs text-foreground">
+{e.code}
+                  </pre>
+                  <Button
+                    onClick={() => copyText(e.code, `${e.label} snippet`)}
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1.5 top-1.5 h-7 w-7"
+                    title="Copy snippet"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </TabsContent>
+            ))}
+          </Tabs>
         </div>
       </Reveal>
     </div>

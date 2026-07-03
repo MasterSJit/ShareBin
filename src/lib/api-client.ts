@@ -158,7 +158,9 @@ export const api = {
       if (status) sp.set('status', status)
       return request<SafeUser & { pasteCount?: number }>('GET', `/api/admin/user?${sp.toString()}`)
     },
-    updateUser: (id: string, patch: { status?: string; role?: string; displayName?: string; verify?: boolean }) =>
+    createUser: (body: { email: string; password: string; displayName?: string; role?: string; roleId?: string; status?: string; autoVerify?: boolean }) =>
+      request<SafeUser>('PUT', `/api/admin/user`, { body }),
+    updateUser: (id: string, patch: { status?: string; role?: string; roleId?: string; displayName?: string; email?: string; password?: string; verify?: boolean; regenerateApiKey?: boolean }) =>
       request<SafeUser>('PATCH', `/api/admin/user`, { body: { id, ...patch } }),
     deleteUser: (id: string) =>
       request<unknown>('DELETE', `/api/admin/user`, { body: { id } }),

@@ -1044,3 +1044,65 @@ Stage Summary:
   7. ✅ Fullscreen editor option
   8. ✅ API settings + external upload (x-api-key) + self-documenting /api/docs (49 endpoints)
   9. ✅ RESTful CRUD (id in path or body) + standard {message, data:[]} format + proper status codes
+
+---
+Task ID: 18
+Agent: admin-api-user-crud
+Task: Add API Settings tab + full User CRUD (create + edit dialog) to admin panel
+
+Work Log:
+- **Scope**: Only `src/components/views/admin-view.tsx` modified. Inspected `src/lib/api-client.ts` — `api.admin.createUser` and `api.admin.updateUser` already accept all required fields (`email, password, displayName, role, status, autoVerify` / `email, displayName, role, status, password, regenerateApiKey`), so no api-client change was needed.
+
+- **Imports**: Added `Code2, Copy, Globe, Key, UserPlus` to the existing `lucide-react` import block (kept alphabetical-ish ordering). All five are used.
+
+- **New "API" tab**: Inserted `{ value: 'api', label: 'API', icon: <Code2 /> }` into the `TABS` array between **Settings** and **Audit Log**, plus the matching `<TabsContent value="api"><ApiSettingsTab /></TabsContent>`.
+
+- **`ApiSettingsTab` component** (~430 lines, appended at end of file). Four `.surface rounded-xl p-5` panels, each in a `Reveal`:
+  1. **API Configuration** — loads `api.admin.getSettings()` on mount (defaults: enabled/60/true/*/null). Controls: `apiEnabled` (Switch), `apiRateLimit` (number Input, clamped ≥1), `apiRequireAuth` (Switch), `apiWebhookUrl` (url Input), `apiCorsOrigins` (Textarea, full, mono). Save button → `api.admin.updateSettings({...})` with `btn-shine bg-brand` + spinner.
+  2. **API Documentation** — fetches `GET /api/docs` directly (public endpoint), parses into a typed `ApiDocsPayload`. "Copy base URL" button copies `window.location.origin + '/api'`. Response-format `<pre>` example + auth-method cards (`x-api-key` header via Key icon, `ps_session` cookie via Globe icon). Endpoints table (sticky header, `max-h-96` scroll) with Method badges (PUT=brand, POST=brand-2/coral, GET=muted, PATCH=amber, DELETE=destructive) and Auth badges (none/optional/required/admin). Status-codes table (200/201/400/401/403/404/409/410/422/429/500) with a `DEFAULT_STATUS_CODES` fallback.
+  3. **API Key Management** — shows `me.apiKey` from the global store with show/hide toggle (Eye/Lock) + copy button. "Generate API key" button → `api.admin.updateUser(me.id, { regenerateApiKey: true })` → `setUser({...me, apiKey})` to refresh the store. "Revoke API key" button → AlertDialog confirm → same regenerate call (per spec, rotating = revoking old key) with distinct toast wording. Inline instruction: "Use this key in the `x-api-key` header".
+  4. **Code Examples** — nested shadcn `Tabs` (local state) with cURL / JavaScript / Python snippets in `<pre>` blocks, each with an absolute-positioned copy button. Snippets interpolate the live `baseUrl` and `apiKey`.
+
+- **User CRUD on Users tab**:
+  - Added state `userDialogOpen` + `editingUser` to `UsersTab`.
+  - "Add User" button (`bg-brand` + `UserPlus`) in the filter bar after Search → opens dialog with `editingUser=null`.
+  - "Edit details" item (Pencil icon) at the **top** of the user-actions dropdown, separated by `DropdownMenuSeparator` before Activate/Suspend/Ban → opens dialog with `editingUser=u`.
+  - New `UserDialog` component (appended before ApiSettingsTab) handles both modes via props `{ open, onOpenChange, editingUser, onSaved }`. Form state resets on open via `useEffect([open, editingUser])`. Fields: Email, Display name, Password (optional in edit, "leave blank to keep current"), Role select (user/admin), Status select (active/pending_verification/suspended/banned), and an Auto-verify checkbox (create-only). Save → `createUser` or `updateUser`, toast, `onSaved()` re-fetches list, closes dialog. Used the existing `Field` + `INPUT_CLASS` pattern (consistent with every other admin dialog) rather than `field-input`/`field-float-label` which aren't used in the admin panel.
+
+- **Constraints honoured**: Only admin-view.tsx modified. No indigo/blue/violet/emerald (badges use brand lime, brand-2 coral, amber-500, muted, destructive). `.surface`/`.surface-2`/`.surface-3` only — never `.glass`. TypeScript strict, no `any` (docs response cast through `{ data: ApiDocsPayload[] }`, settings through `Record<string, unknown>`). Toasts via `sonner`. No `bun run build`.
+
+- **Verification**: `bun run lint` → 0 errors, 0 warnings. `bunx tsc --noEmit` → 0 errors in admin-view.tsx / api-client.ts (pre-existing errors in other files are unrelated). File grew 6195 → 7052 lines (+857). Dev log shows admin API calls succeeding after the edit.
+
+Files Modified:
+- `src/components/views/admin-view.tsx` — added 5 lucide imports; added `api` entry to TABS + TabsContent; added `userDialogOpen`/`editingUser` state + Add User button + Edit dropdown item + `<UserDialog>` render to `UsersTab`; appended `UserDialog` and `ApiSettingsTab` components + supporting types (`ApiDocsEndpoint`, `ApiDocsPayload`) + lookup maps (`METHOD_BADGE_CLASS`, `AUTH_BADGE_CLASS`) + `DEFAULT_STATUS_CODES` + `RESPONSE_FORMAT_EXAMPLE` constants at end of file.
+
+Stage Summary:
+- Admin panel now has a dedicated **API** tab (between Settings and Audit Log) with a 4-section terminal-grade layout: API configuration form (enable/rate-limit/auth-required/CORS/webhook), self-documenting API docs (response format + auth methods + endpoints table + status codes), API key management (show/hide/copy/generate/revoke with AlertDialog confirm), and tabbed code examples (cURL/JS/Python with per-snippet copy).
+- Users tab now supports full CRUD: an "Add User" button creates accounts via `api.admin.createUser`, and an "Edit details" dropdown item opens a pre-filled dialog that patches via `api.admin.updateUser` (email/displayName/role/status/optional-password). Both flows toast on success and re-fetch the user list.
+
+---
+Task ID: 18-verify
+Agent: orchestrator (main)
+Task: Verify API settings tab + user CRUD via Agent Browser
+
+Work Log:
+- **API Settings tab**: Added new "API" tab (between Settings and Audit Log). Contains 4 sections:
+  1. API Configuration — apiEnabled switch, rate limit, requireAuth, webhook URL, CORS origins, Save button.
+  2. API Documentation — response format example, auth methods, endpoints table (method badges, path, description, auth), status codes reference, Copy base URL button. Fetches from `GET /api/docs`.
+  3. API Key Management — shows current admin's API key with show/hide, Generate/Revoke buttons.
+  4. Code Examples — tabbed cURL/JavaScript/Python examples with copy buttons.
+- **User CRUD**: 
+  - Backend: Added PUT handler to `/api/admin/user` (create user with email/password/displayName/role/status/autoVerify). Enhanced PATCH to support email, roleId, password, regenerateApiKey. Used `parseJsonBody` for robust parsing.
+  - Frontend: "Add User" button in the Users tab filter bar. "Edit details" option in the user actions dropdown. `UserDialog` component handles both create and edit modes with email, displayName, password (optional in edit), role select, status select, auto-verify checkbox.
+- Verified via Agent Browser:
+  - API tab shows all 4 sections with correct content ✅
+  - "Add User" opens create dialog → filled form → "User created" toast → user appears in table ✅
+  - "Edit details" opens edit dialog with pre-filled fields → changed name → "User updated" toast → name updated in DB (verified via API: "Updated Name") ✅
+  - Delete with confirm → "User deleted" toast ✅
+  - Zero console/runtime errors ✅
+- Lint: 0 errors.
+
+Stage Summary:
+- Both user requests fully implemented and verified:
+  1. ✅ API settings tab — full API configuration, documentation, key management, code examples
+  2. ✅ User CRUD — create (Add User), edit (full dialog with all fields), delete, plus existing suspend/ban/promote/demote

@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { ok, unauthorized, forbidden, notFound, badRequest, serverError } from '@/lib/api-response'
-import { getSession } from '@/lib/auth'
+import { ok, created, unauthorized, forbidden, notFound, badRequest, conflict, serverError } from '@/lib/api-response'
+import { getSession, hashPassword, generateApiKey } from '@/lib/auth'
 import { auditLog } from '@/lib/paste-utils'
 import { cacheDelPrefix } from '@/lib/cache'
+import { parseJsonBody } from '@/lib/parse-body'
 import type { SafeUser } from '@/lib/types'
 
 async function requireAdmin() {
@@ -22,6 +23,7 @@ function toSafeUser(u: {
   emailVerifiedAt: Date | null
   apiKey: string | null
   createdAt: Date
+  roleId: string | null
 }): SafeUser {
   return {
     id: u.id,
@@ -69,23 +71,66 @@ export async function GET(req: NextRequest) {
   return ok('Users fetched', users.map((u) => ({ ...toSafeUser(u), pasteCount: countMap.get(u.id) ?? 0 })))
 }
 
-// PATCH /api/admin/user — ban/suspend/verify/edit any user
+// PUT /api/admin/user — create a new user (admin-created)
+export async function PUT(req: NextRequest) {
+  const { error, session } = await requireAdmin()
+  if (error || !session) return error
+
+  const { data: body, error: jsonErr } = await parseJsonBody<{
+    email?: string
+    password?: string
+    displayName?: string
+    role?: string
+    roleId?: string
+    status?: string
+    autoVerify?: boolean
+  }>(req)
+  if (jsonErr || !body) return badRequest(jsonErr || 'Invalid JSON')
+
+  const email = body.email?.trim().toLowerCase()
+  const password = body.password
+  if (!email || !password) return badRequest('email and password are required')
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return badRequest('Invalid email format')
+  if (password.length < 8) return badRequest('Password must be at least 8 characters')
+
+  const existing = await db.user.findUnique({ where: { email } })
+  if (existing) return conflict('Email already registered')
+
+  const hash = await hashPassword(password)
+  const user = await db.user.create({
+    data: {
+      email,
+      passwordHash: hash,
+      displayName: body.displayName?.trim().slice(0, 100) || null,
+      role: body.role === 'admin' ? 'admin' : 'user',
+      roleId: body.roleId || null,
+      status: body.status || 'active',
+      emailVerifiedAt: body.autoVerify !== false ? new Date() : null,
+    },
+  })
+
+  await auditLog(session.userId, 'create_user', 'user', user.id, { email: user.email, role: user.role })
+  return created('User created', [toSafeUser(user)])
+}
+
+// PATCH /api/admin/user — update any user (full edit: name, email, role, status, roleId, password, apiKey)
 export async function PATCH(req: NextRequest) {
   const { error, session } = await requireAdmin()
   if (error || !session) return error
 
-  let body: {
+  const { data: body, error: jsonErr } = await parseJsonBody<{
     id?: string
     status?: string
     role?: string
+    roleId?: string
     displayName?: string
+    email?: string
+    password?: string
     verify?: boolean
-  } = {}
-  try {
-    body = await req.json()
-  } catch {
-    return badRequest('Invalid JSON body')
-  }
+    regenerateApiKey?: boolean
+  }>(req)
+  if (jsonErr || !body) return badRequest(jsonErr || 'Invalid JSON')
+
   const { searchParams } = new URL(req.url)
   const id = body.id || searchParams.get('id')
   if (!id) return badRequest('id is required')
@@ -94,7 +139,7 @@ export async function PATCH(req: NextRequest) {
   if (!target) return notFound('User not found')
 
   const patch: Record<string, unknown> = {}
-  const meta: Record<string, unknown> = { before: { status: target.status, role: target.role } }
+  const meta: Record<string, unknown> = { before: { status: target.status, role: target.role, email: target.email, displayName: target.displayName } }
 
   if (body.status && ['pending_verification', 'active', 'suspended', 'banned'].includes(body.status)) {
     patch.status = body.status
@@ -105,12 +150,29 @@ export async function PATCH(req: NextRequest) {
     }
     patch.role = body.role
   }
+  if (typeof body.roleId === 'string') {
+    patch.roleId = body.roleId || null
+  }
   if (typeof body.displayName === 'string') {
     patch.displayName = body.displayName.trim().slice(0, 100) || null
+  }
+  if (typeof body.email === 'string' && body.email !== target.email) {
+    const email = body.email.trim().toLowerCase()
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return badRequest('Invalid email format')
+    const clash = await db.user.findUnique({ where: { email } })
+    if (clash) return conflict('Email already in use')
+    patch.email = email
+  }
+  if (body.password) {
+    if (body.password.length < 8) return badRequest('Password must be at least 8 characters')
+    patch.passwordHash = await hashPassword(body.password)
   }
   if (body.verify) {
     patch.emailVerifiedAt = new Date()
     if (target.status === 'pending_verification') patch.status = 'active'
+  }
+  if (body.regenerateApiKey) {
+    patch.apiKey = generateApiKey()
   }
 
   if (Object.keys(patch).length === 0) return badRequest('No valid fields to update')
@@ -126,14 +188,11 @@ export async function DELETE(req: NextRequest) {
   const { error, session } = await requireAdmin()
   if (error || !session) return error
 
-  let body: { id?: string } = {}
-  try {
-    body = await req.json().catch(() => ({}))
-  } catch {
-    /* allow empty */
-  }
+  const { data: body, error: jsonErr } = await parseJsonBody<{ id?: string }>(req)
+  if (jsonErr) return badRequest(jsonErr)
+
   const { searchParams } = new URL(req.url)
-  const id = body.id || searchParams.get('id')
+  const id = body?.id || searchParams.get('id')
   if (!id) return badRequest('id is required')
   if (id === session.userId) return badRequest('Cannot delete your own account here')
 
