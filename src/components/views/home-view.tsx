@@ -32,6 +32,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { CodeEditor } from '@/components/editor/code-editor'
+import { AdSlot } from '@/components/ad-slot'
 import { PasteCard } from '@/components/paste-card'
 import { Reveal, StaggerGroup, fadeUp } from '@/components/motion-helpers'
 import {
@@ -384,6 +385,11 @@ export function HomeView() {
       />
 
       {/* ----------------------------------------------------------- */}
+      {/* Between-cards sponsored slot                                */}
+      {/* ----------------------------------------------------------- */}
+      <AdSlot slot="between-cards" className="mt-6" />
+
+      {/* ----------------------------------------------------------- */}
       {/* Recent public pastes                                        */}
       {/* ----------------------------------------------------------- */}
       <RecentPastes
@@ -591,6 +597,7 @@ function CreatePanel(props: {
                     submitDisabled={!textContent.trim()}
                     submitIcon={<Plus className="h-4 w-4" />}
                   />
+                  <AdSlot slot="sidebar" className="mt-4" />
                 </div>
               </div>
             </TabsContent>
@@ -736,6 +743,7 @@ function CreatePanel(props: {
                     submitDisabled={!file}
                     submitIcon={<Upload className="h-4 w-4" />}
                   />
+                  <AdSlot slot="sidebar" className="mt-4" />
                 </div>
               </div>
             </TabsContent>

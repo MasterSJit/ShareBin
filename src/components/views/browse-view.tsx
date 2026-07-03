@@ -21,6 +21,7 @@ import {
   Flame,
 } from 'lucide-react'
 import { PasteCard } from '@/components/paste-card'
+import { AdSlot } from '@/components/ad-slot'
 import { api, ApiError } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
 import type { SafePaste } from '@/lib/types'
@@ -234,6 +235,9 @@ export function BrowseView() {
         </div>
       </Reveal>
 
+      {/* ===== Between-cards sponsored slot ===== */}
+      <AdSlot slot="between-cards" className="mb-6" />
+
       {/* ===== Body: results + sidebar ===== */}
       <div className="xl:grid xl:grid-cols-[1fr_240px] xl:gap-6">
         {/* Main results column */}
@@ -358,6 +362,8 @@ export function BrowseView() {
               )}
             </div>
           </Reveal>
+
+          <AdSlot slot="sidebar" className="mt-4" />
         </aside>
       </div>
     </div>

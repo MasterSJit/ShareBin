@@ -1,0 +1,2002 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useMemo, useState, type ReactNode } from 'react'
+     4→import { motion } from 'framer-motion'
+     5→import {
+     6→  Area,
+     7→  AreaChart,
+     8→  ResponsiveContainer,
+     9→  Tooltip,
+    10→  XAxis,
+    11→  YAxis,
+    12→} from 'recharts'
+    13→import { Button } from '@/components/ui/button'
+    14→import { Checkbox } from '@/components/ui/checkbox'
+    15→import { Input } from '@/components/ui/input'
+    16→import { Label } from '@/components/ui/label'
+    17→import { Switch } from '@/components/ui/switch'
+    18→import { Textarea } from '@/components/ui/textarea'
+    19→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    20→import {
+    21→  Table,
+    22→  TableBody,
+    23→  TableCell,
+    24→  TableHead,
+    25→  TableHeader,
+    26→  TableRow,
+    27→} from '@/components/ui/table'
+    28→import {
+    29→  Select,
+    30→  SelectContent,
+    31→  SelectItem,
+    32→  SelectTrigger,
+    33→  SelectValue,
+    34→} from '@/components/ui/select'
+    35→import {
+    36→  DropdownMenu,
+    37→  DropdownMenuContent,
+    38→  DropdownMenuItem,
+    39→  DropdownMenuSeparator,
+    40→  DropdownMenuTrigger,
+    41→} from '@/components/ui/dropdown-menu'
+    42→import {
+    43→  AlertDialog,
+    44→  AlertDialogAction,
+    45→  AlertDialogCancel,
+    46→  AlertDialogContent,
+    47→  AlertDialogDescription,
+    48→  AlertDialogFooter,
+    49→  AlertDialogHeader,
+    50→  AlertDialogTitle,
+    51→} from '@/components/ui/alert-dialog'
+    52→import {
+    53→  Dialog,
+    54→  DialogContent,
+    55→  DialogDescription,
+    56→  DialogFooter,
+    57→  DialogHeader,
+    58→  DialogTitle,
+    59→} from '@/components/ui/dialog'
+    60→import {
+    61→  Activity,
+    62→  AlertTriangle,
+    63→  ArrowDownCircle,
+    64→  ArrowUpCircle,
+    65→  Ban,
+    66→  BarChart3,
+    67→  CalendarPlus,
+    68→  Check,
+    69→  CheckCircle2,
+    70→  ChevronLeft,
+    71→  ChevronRight,
+    72→  CreditCard,
+    73→  Database,
+    74→  Download,
+    75→  Eye,
+    76→  FileJson,
+    77→  FileText,
+    78→  Flag,
+    79→  Flame,
+    80→  HardDrive,
+    81→  Loader2,
+    82→  Lock,
+    83→  MoreHorizontal,
+    84→  Pause,
+    85→  Pencil,
+    86→  Plus,
+    87→  RotateCcw,
+    88→  Save,
+    89→  Search,
+    90→  Settings as SettingsIcon,
+    91→  Shield,
+    92→  ShieldAlert,
+    93→  Trash2,
+    94→  Users as UsersIcon,
+    95→  X,
+    96→} from 'lucide-react'
+    97→import { toast } from 'sonner'
+    98→import { api, ApiError } from '@/lib/api-client'
+    99→import { useAppStore } from '@/lib/store'
+   100→import {
+   101→  EXPIRY_OPTIONS,
+   102→  formatBytes,
+   103→  formatDate,
+   104→  formatRelativeTime,
+   105→} from '@/lib/ui-utils'
+   106→import {
+   107→  AnimatedNumber,
+   108→  Reveal,
+   109→  StaggerGroup,
+   110→  fadeUp,
+   111→  scaleIn,
+   112→  staggerContainer,
+   113→} from '@/components/motion-helpers'
+   114→import type { SafeAuditLog, SafePaste, SafeUser } from '@/lib/types'
+   115→
+   116→type Analytics = {
+   117→  totalUsers: number
+   118→  totalPastes: number
+   119→  totalFiles: number
+   120→  totalActivePastes: number
+   121→  flaggedCount: number
+   122→  burnedCount: number
+   123→  totalViews: number
+   124→  storageUsedBytes: number
+   125→  topLanguages: { language: string; count: number }[]
+   126→  traffic: { date: string; count: number }[]
+   127→}
+   128→
+   129→type UserRow = SafeUser & { pasteCount?: number }
+   130→
+   131→type Role = {
+   132→  id: string
+   133→  name: string
+   134→  description: string | null
+   135→  color: string | null
+   136→  isSystem: boolean
+   137→  userCount: number
+   138→  createdAt: string
+   139→  permissions: {
+   140→    id: string
+   141→    name: string
+   142→    description: string | null
+   143→    category: string
+   144→  }[]
+   145→}
+   146→
+   147→type Permission = {
+   148→  id: string
+   149→  name: string
+   150→  description: string | null
+   151→  category: string
+   152→}
+   153→
+   154→type Plan = {
+   155→  id: string
+   156→  name: string
+   157→  description: string | null
+   158→  monthlyPrice: number
+   159→  maxStorageBytes: number
+   160→  maxPasteSize: number
+   161→  maxPastesPerMonth: number
+   162→  allowedExpiryPresets: string[]
+   163→  allowCustomExpiry: boolean
+   164→  allowBurnAfterRead: boolean
+   165→  allowPassword: boolean
+   166→  allowPrivate: boolean
+   167→  allowFileUpload: boolean
+   168→  isSystem: boolean
+   169→  isActive: boolean
+   170→  sortOrder: number
+   171→  createdAt: string
+   172→}
+   173→
+   174→type Subscription = {
+   175→  id: string
+   176→  userId: string
+   177→  planId: string
+   178→  status: string
+   179→  startedAt: string
+   180→  expiresAt: string | null
+   181→  createdAt: string
+   182→  user: { id: string; email: string; displayName: string | null } | null
+   183→  plan: { id: string; name: string; monthlyPrice: number } | null
+   184→}
+   185→
+   186→type UsageRow = {
+   187→  user: {
+   188→    id: string
+   189→    email: string
+   190→    displayName: string | null
+   191→    role: string
+   192→    status: string
+   193→  }
+   194→  subscription: {
+   195→    id: string
+   196→    status: string
+   197→    expiresAt: string | null
+   198→    plan: { id: string; name: string; maxStorageBytes: number }
+   199→  } | null
+   200→  usage: {
+   201→    storageBytes: number
+   202→    pasteCount: number
+   203→    fileCount: number
+   204→    monthPasteCount: number
+   205→    totalPastes: number
+   206→    totalViews: number
+   207→  }
+   208→}
+   209→
+   210→type PlanForm = {
+   211→  name: string
+   212→  description: string
+   213→  monthlyPrice: string
+   214→  maxStorageBytes: string
+   215→  maxPasteSize: string
+   216→  maxPastesPerMonth: string
+   217→  allowedExpiryPresets: string
+   218→  allowCustomExpiry: boolean
+   219→  allowBurnAfterRead: boolean
+   220→  allowPassword: boolean
+   221→  allowPrivate: boolean
+   222→  allowFileUpload: boolean
+   223→  isActive: boolean
+   224→  sortOrder: string
+   225→}
+   226→
+   227→type PlanFlagKey =
+   228→  | 'allowCustomExpiry'
+   229→  | 'allowBurnAfterRead'
+   230→  | 'allowPassword'
+   231→  | 'allowPrivate'
+   232→  | 'allowFileUpload'
+   233→
+   234→const PLAN_FEATURE_FLAGS: { key: PlanFlagKey; label: string }[] = [
+   235→  { key: 'allowCustomExpiry', label: 'Custom expiry' },
+   236→  { key: 'allowBurnAfterRead', label: 'Burn after read' },
+   237→  { key: 'allowPassword', label: 'Password' },
+   238→  { key: 'allowPrivate', label: 'Private' },
+   239→  { key: 'allowFileUpload', label: 'File upload' },
+   240→]
+   241→
+   242→const ROLE_COLOR_MAP: Record<string, string> = {
+   243→  brand: 'bg-brand',
+   244→  'brand-2': 'bg-brand-2',
+   245→  amber: 'bg-amber-500',
+   246→  rose: 'bg-rose-500',
+   247→}
+   248→
+   249→const ROLE_COLOR_OPTIONS: { value: string; label: string }[] = [
+   250→  { value: 'brand', label: 'Lime' },
+   251→  { value: 'brand-2', label: 'Coral' },
+   252→  { value: 'amber', label: 'Amber' },
+   253→  { value: 'rose', label: 'Rose' },
+   254→]
+   255→
+   256→const SCROLLBAR_CLASS =
+   257→  '[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30'
+   258→
+   259→const BRAND_LIME = 'oklch(0.8 0.2 125)'
+   260→
+   261→const INPUT_CLASS =
+   262→  'bg-surface-3 border-border rounded-md focus-visible:ring-brand text-sm'
+   263→
+   264→/** Languages offered in the Edit-paste dialog (compact subset). */
+   265→const EDIT_LANGUAGES: { value: string; label: string }[] = [
+   266→  { value: 'plaintext', label: 'Plain Text' },
+   267→  { value: 'javascript', label: 'JavaScript' },
+   268→  { value: 'typescript', label: 'TypeScript' },
+   269→  { value: 'python', label: 'Python' },
+   270→  { value: 'java', label: 'Java' },
+   271→  { value: 'csharp', label: 'C#' },
+   272→  { value: 'cpp', label: 'C++' },
+   273→  { value: 'go', label: 'Go' },
+   274→  { value: 'rust', label: 'Rust' },
+   275→  { value: 'ruby', label: 'Ruby' },
+   276→  { value: 'php', label: 'PHP' },
+   277→  { value: 'sql', label: 'SQL' },
+   278→  { value: 'bash', label: 'Bash / Shell' },
+   279→  { value: 'html', label: 'HTML' },
+   280→  { value: 'css', label: 'CSS' },
+   281→  { value: 'json', label: 'JSON' },
+   282→  { value: 'yaml', label: 'YAML' },
+   283→  { value: 'markdown', label: 'Markdown' },
+   284→  { value: 'dockerfile', label: 'Dockerfile' },
+   285→]
+   286→
+   287→const EDIT_EXPIRY_OPTIONS: { value: string; label: string }[] = [
+   288→  { value: 'never', label: 'Never' },
+   289→  { value: '10m', label: '10 minutes' },
+   290→  { value: '1h', label: '1 hour' },
+   291→  { value: '1d', label: '1 day' },
+   292→  { value: '1w', label: '1 week' },
+   293→  { value: '1M', label: '1 month' },
+   294→  { value: '1y', label: '1 year' },
+   295→  { value: 'custom', label: 'Custom…' },
+   296→]
+   297→
+   298→const PRESET_MS: Record<string, number> = {
+   299→  '10m': 10 * 60 * 1000,
+   300→  '1h': 60 * 60 * 1000,
+   301→  '1d': 24 * 60 * 60 * 1000,
+   302→  '1w': 7 * 24 * 60 * 60 * 1000,
+   303→  '1M': 30 * 24 * 60 * 60 * 1000,
+   304→  '1y': 365 * 24 * 60 * 60 * 1000,
+   305→}
+   306→
+   307→type EditForm = {
+   308→  title: string
+   309→  description: string
+   310→  tags: string
+   311→  language: string
+   312→  visibility: 'public' | 'unlisted' | 'private'
+   313→  textContent: string
+   314→  textFetchOk: boolean
+   315→  textLoading: boolean
+   316→  viewCount: string
+   317→  expiryPreset: string
+   318→  expiryCustom: string
+   319→}
+   320→
+   321→/** Reverse-engineer the expiry preset from a paste's expiresAt vs createdAt. */
+   322→function deriveExpiryFromPaste(p: SafePaste): {
+   323→  preset: string
+   324→  custom: string
+   325→} {
+   326→  if (!p.expiresAt) return { preset: 'never', custom: '' }
+   327→  const created = new Date(p.createdAt).getTime()
+   328→  const expires = new Date(p.expiresAt).getTime()
+   329→  const diffMs = expires - created
+   330→  for (const [value, ms] of Object.entries(PRESET_MS)) {
+   331→    if (Math.abs(diffMs - ms) < 60 * 1000) {
+   332→      return { preset: value, custom: '' }
+   333→    }
+   334→  }
+   335→  // Custom — fill datetime-local in local time.
+   336→  const dt = new Date(p.expiresAt)
+   337→  const pad = (n: number) => String(n).padStart(2, '0')
+   338→  const custom = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(
+   339→    dt.getDate(),
+   340→  )}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
+   341→  return { preset: 'custom', custom }
+   342→}
+   343→
+   344→/** Format a Date into a value usable by `<input type="datetime-local">`. */
+   345→function toLocalDatetime(d: Date): string {
+   346→  const pad = (n: number) => String(n).padStart(2, '0')
+   347→  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+   348→    d.getDate(),
+   349→  )}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+   350→}
+   351→
+   352→export function AdminView() {
+   353→  const user = useAppStore((s) => s.user)
+   354→  const goHome = useAppStore((s) => s.goHome)
+   355→
+   356→  if (!user || user.role !== 'admin') {
+   357→    return (
+   358→      <div className="mx-auto max-w-6xl px-4 py-8 md:py-10 sm:px-6">
+   359→        <Reveal variant={fadeUp} className="mx-auto mt-12 max-w-md">
+   360→          <div className="surface rounded-2xl p-12 text-center">
+   361→            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
+   362→              <Lock className="h-6 w-6" />
+   363→            </div>
+   364→            <h2 className="text-lg font-semibold tracking-tight">Admin only</h2>
+   365→            <p className="mt-1 text-sm text-muted-foreground">
+   366→              You don&apos;t have permission to access the admin panel.
+   367→            </p>
+   368→            <Button
+   369→              onClick={goHome}
+   370→              className="btn-shine mt-5 bg-brand text-brand-foreground hover:bg-brand/90"
+   371→            >
+   372→              Back to home
+   373→            </Button>
+   374→          </div>
+   375→        </Reveal>
+   376→      </div>
+   377→    )
+   378→  }
+   379→
+   380→  return <AdminInner />
+   381→}
+   382→
+   383→function AdminInner() {
+   384→  const [tab, setTab] = useState('overview')
+   385→
+   386→  const TABS: { value: string; label: string; icon: ReactNode }[] = [
+   387→    {
+   388→      value: 'overview',
+   389→      label: 'Overview',
+   390→      icon: <Activity className="h-3.5 w-3.5" />,
+   391→    },
+   392→    { value: 'users', label: 'Users', icon: <UsersIcon className="h-3.5 w-3.5" /> },
+   393→    {
+   394→      value: 'content',
+   395→      label: 'Content',
+   396→      icon: <FileText className="h-3.5 w-3.5" />,
+   397→    },
+   398→    {
+   399→      value: 'roles',
+   400→      label: 'Roles',
+   401→      icon: <Shield className="h-3.5 w-3.5" />,
+   402→    },
+   403→    {
+   404→      value: 'plans',
+   405→      label: 'Plans',
+   406→      icon: <CreditCard className="h-3.5 w-3.5" />,
+   407→    },
+   408→    {
+   409→      value: 'subscriptions',
+   410→      label: 'Subscriptions',
+   411→      icon: <CalendarPlus className="h-3.5 w-3.5" />,
+   412→    },
+   413→    {
+   414→      value: 'usage',
+   415→      label: 'Usage',
+   416→      icon: <BarChart3 className="h-3.5 w-3.5" />,
+   417→    },
+   418→    {
+   419→      value: 'settings',
+   420→      label: 'Settings',
+   421→      icon: <SettingsIcon className="h-3.5 w-3.5" />,
+   422→    },
+   423→    {
+   424→      value: 'audit',
+   425→      label: 'Audit Log',
+   426→      icon: <ShieldAlert className="h-3.5 w-3.5" />,
+   427→    },
+   428→  ]
+   429→
+   430→  return (
+   431→    <div className="mx-auto max-w-6xl px-4 py-8 md:py-10 sm:px-6">
+   432→      {/* Header */}
+   433→      <Reveal variant={fadeUp} className="mb-8">
+   434→        <p className="font-mono text-xs text-brand">
+   435→          <span className="text-muted-foreground">{'>'}</span> sudo admin
+   436→        </p>
+   437→        <div className="mt-1 flex items-center gap-3">
+   438→          <h1 className="text-3xl font-semibold tracking-tight">Admin</h1>
+   439→          <span className="brand-dot" />
+   440→        </div>
+   441→        <p className="mt-1 text-sm text-muted-foreground">
+   442→          Manage users, content, and site settings.
+   443→        </p>
+   444→      </Reveal>
+   445→
+   446→      <Tabs
+   447→        value={tab}
+   448→        onValueChange={setTab}
+   449→        orientation="vertical"
+   450→        className="flex flex-col gap-6 lg:flex-row"
+   451→      >
+   452→        <Reveal variant={fadeUp} delay={0.05}>
+   453→          <TabsList className="grid h-fit w-full grid-cols-3 gap-1 rounded-xl bg-transparent p-0 sm:grid-cols-5 lg:flex lg:w-56 lg:flex-col lg:grid-cols-1">
+   454→            {TABS.map((t) => (
+   455→              <TabsTrigger
+   456→                key={t.value}
+   457→                value={t.value}
+   458→                className="font-mono flex items-center justify-start gap-2 rounded-md border-b-2 border-transparent px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-l-2 data-[state=active]:border-b-transparent data-[state=active]:border-l-brand data-[state=active]:bg-brand/10 data-[state=active]:text-brand data-[state=active]:shadow-none lg:border-b-0 lg:border-l-2"
+   459→              >
+   460→                {t.icon}
+   461→                <span>{t.label}</span>
+   462→              </TabsTrigger>
+   463→            ))}
+   464→          </TabsList>
+   465→        </Reveal>
+   466→
+   467→        <div className="min-w-0 flex-1">
+   468→          <TabsContent value="overview" className="mt-0">
+   469→            <OverviewTab />
+   470→          </TabsContent>
+   471→          <TabsContent value="users" className="mt-0">
+   472→            <UsersTab />
+   473→          </TabsContent>
+   474→          <TabsContent value="content" className="mt-0">
+   475→            <ContentTab />
+   476→          </TabsContent>
+   477→          <TabsContent value="roles" className="mt-0">
+   478→            <RolesTab />
+   479→          </TabsContent>
+   480→          <TabsContent value="plans" className="mt-0">
+   481→            <PlansTab />
+   482→          </TabsContent>
+   483→          <TabsContent value="subscriptions" className="mt-0">
+   484→            <SubscriptionsTab />
+   485→          </TabsContent>
+   486→          <TabsContent value="usage" className="mt-0">
+   487→            <UsageTab />
+   488→          </TabsContent>
+   489→          <TabsContent value="settings" className="mt-0">
+   490→            <SettingsTab />
+   491→          </TabsContent>
+   492→          <TabsContent value="audit" className="mt-0">
+   493→            <AuditTab />
+   494→          </TabsContent>
+   495→        </div>
+   496→      </Tabs>
+   497→    </div>
+   498→  )
+   499→}
+   500→
+   501→/* ---------------- Overview ---------------- */
+   502→
+   503→function OverviewTab() {
+   504→  const [data, setData] = useState<Analytics | null>(null)
+   505→  const [loading, setLoading] = useState(true)
+   506→
+   507→  useEffect(() => {
+   508→    let active = true
+   509→    api.admin
+   510→      .analytics()
+   511→      .then((rows) => {
+   512→        if (active && rows[0]) setData(rows[0])
+   513→      })
+   514→      .catch((err) => {
+   515→        toast.error(err instanceof ApiError ? err.message : 'Failed to load analytics.')
+   516→      })
+   517→      .finally(() => {
+   518→        if (active) setLoading(false)
+   519→      })
+   520→    return () => {
+   521→      active = false
+   522→    }
+   523→  }, [])
+   524→
+   525→  if (loading || !data) {
+   526→    return (
+   527→      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+   528→        {[0, 1, 2, 3].map((i) => (
+   529→          <div key={i} className="shimmer surface h-28 rounded-xl" />
+   530→        ))}
+   531→        <div className="shimmer surface h-64 rounded-xl sm:col-span-2 lg:col-span-4" />
+   532→      </div>
+   533→    )
+   534→  }
+   535→
+   536→  const traffic = data.traffic.map((t) => ({
+   537→    ...t,
+   538→    label: new Date(t.date).toLocaleDateString(undefined, {
+   539→      month: 'short',
+   540→      day: 'numeric',
+   541→    }),
+   542→  }))
+   543→
+   544→  const maxLang = data.topLanguages.reduce((m, l) => Math.max(m, l.count), 1)
+   545→
+   546→  return (
+   547→    <div className="space-y-4">
+   548→      {/* KPI cards */}
+   549→      <StaggerGroup stagger={0.07} className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+   550→        <Reveal variant={scaleIn}>
+   551→          <KpiCard
+   552→            label="Total users"
+   553→            value={data.totalUsers}
+   554→            icon={<UsersIcon className="h-4 w-4" />}
+   555→            accent
+   556→          />
+   557→        </Reveal>
+   558→        <Reveal variant={scaleIn}>
+   559→          <KpiCard
+   560→            label="Active pastes"
+   561→            value={data.totalActivePastes}
+   562→            icon={<FileText className="h-4 w-4" />}
+   563→          />
+   564→        </Reveal>
+   565→        <Reveal variant={scaleIn}>
+   566→          <KpiCard
+   567→            label="Total files"
+   568→            value={data.totalFiles}
+   569→            icon={<HardDrive className="h-4 w-4" />}
+   570→          />
+   571→        </Reveal>
+   572→        <Reveal variant={scaleIn}>
+   573→          <KpiCard
+   574→            label="Storage used"
+   575→            value={data.storageUsedBytes}
+   576→            format={(n) => formatBytes(n)}
+   577→            icon={<HardDrive className="h-4 w-4" />}
+   578→            accent
+   579→          />
+   580→        </Reveal>
+   581→      </StaggerGroup>
+   582→
+   583→      {/* Secondary stat cards */}
+   584→      <StaggerGroup stagger={0.06} className="grid gap-4 sm:grid-cols-2">
+   585→        <Reveal variant={scaleIn}>
+   586→          <div className="surface lift flex items-center gap-4 rounded-xl p-5">
+   587→            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/15 text-amber-500">
+   588→              <Flag className="h-5 w-5" />
+   589→            </div>
+   590→            <div>
+   591→              <p className="text-2xl font-semibold">
+   592→                <AnimatedNumber value={data.flaggedCount} />
+   593→              </p>
+   594→              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+   595→                Flagged content
+   596→              </p>
+   597→            </div>
+   598→          </div>
+   599→        </Reveal>
+   600→        <Reveal variant={scaleIn}>
+   601→          <div className="surface lift flex items-center gap-4 rounded-xl p-5">
+   602→            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-2/15 text-brand-2">
+   603→              <Flame className="h-5 w-5" />
+   604→            </div>
+   605→            <div>
+   606→              <p className="text-2xl font-semibold">
+   607→                <AnimatedNumber value={data.burnedCount} />
+   608→              </p>
+   609→              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+   610→                Burned pastes
+   611→              </p>
+   612→            </div>
+   613→          </div>
+   614→        </Reveal>
+   615→      </StaggerGroup>
+   616→
+   617→      {/* Charts */}
+   618→      <div className="grid gap-4 lg:grid-cols-3">
+   619→        <Reveal variant={fadeUp} className="lg:col-span-2">
+   620→          <div className="surface rounded-xl p-5">
+   621→            <div className="mb-4 flex items-baseline justify-between">
+   622→              <h3 className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+   623→                paste creation — 14d
+   624→              </h3>
+   625→              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+   626→                <span className="h-2 w-2 rounded-full bg-brand" /> daily count
+   627→              </div>
+   628→            </div>
+   629→            <div className="h-64 w-full">
+   630→              <ResponsiveContainer width="100%" height="100%">
+   631→                <AreaChart
+   632→                  data={traffic}
+   633→                  margin={{ top: 5, right: 8, bottom: 0, left: -20 }}
+   634→                >
+   635→                  <defs>
+   636→                    <linearGradient id="trafficFill" x1="0" y1="0" x2="0" y2="1">
+   637→                      <stop offset="0%" stopColor={BRAND_LIME} stopOpacity={0.45} />
+   638→                      <stop offset="100%" stopColor={BRAND_LIME} stopOpacity={0} />
+   639→                    </linearGradient>
+   640→                  </defs>
+   641→                  <XAxis
+   642→                    dataKey="label"
+   643→                    tick={{ fontSize: 11, fill: 'currentColor' }}
+   644→                    className="text-muted-foreground"
+   645→                    axisLine={false}
+   646→                    tickLine={false}
+   647→                  />
+   648→                  <YAxis
+   649→                    allowDecimals={false}
+   650→                    tick={{ fontSize: 11, fill: 'currentColor' }}
+   651→                    className="text-muted-foreground"
+   652→                    axisLine={false}
+   653→                    tickLine={false}
+   654→                  />
+   655→                  <Tooltip content={<ChartTooltip />} />
+   656→                  <Area
+   657→                    type="monotone"
+   658→                    dataKey="count"
+   659→                    stroke={BRAND_LIME}
+   660→                    strokeWidth={2.5}
+   661→                    fill="url(#trafficFill)"
+   662→                    dot={false}
+   663→                    activeDot={{
+   664→                      r: 5,
+   665→                      fill: BRAND_LIME,
+   666→                      stroke: 'white',
+   667→                      strokeWidth: 2,
+   668→                    }}
+   669→                  />
+   670→                </AreaChart>
+   671→              </ResponsiveContainer>
+   672→            </div>
+   673→          </div>
+   674→        </Reveal>
+   675→
+   676→        <Reveal variant={fadeUp} delay={0.05}>
+   677→          <div className="surface h-full rounded-xl p-5">
+   678→            <h3 className="font-mono mb-4 text-[11px] uppercase tracking-wider text-muted-foreground">
+   679→              top languages
+   680→            </h3>
+   681→            {data.topLanguages.length === 0 ? (
+   682→              <p className="py-12 text-center text-sm text-muted-foreground">
+   683→                No data yet.
+   684→              </p>
+   685→            ) : (
+   686→              <div className="space-y-2.5">
+   687→                {data.topLanguages.slice(0, 8).map((l) => (
+   688→                  <div key={l.language} className="space-y-1">
+   689→                    <div className="flex items-center justify-between text-xs">
+   690→                      <span className="font-mono text-foreground">
+   691→                        {l.language}
+   692→                      </span>
+   693→                      <span className="text-muted-foreground">{l.count}</span>
+   694→                    </div>
+   695→                    <div className="h-1.5 overflow-hidden rounded-full bg-brand/20">
+   696→                      <motion.div
+   697→                        initial={{ width: 0 }}
+   698→                        animate={{ width: `${(l.count / maxLang) * 100}%` }}
+   699→                        transition={{ duration: 0.8, ease: [0.2, 0.8, 0.2, 1] }}
+   700→                        className="h-full rounded-full bg-brand"
+   701→                      />
+   702→                    </div>
+   703→                  </div>
+   704→                ))}
+   705→              </div>
+   706→            )}
+   707→          </div>
+   708→        </Reveal>
+   709→      </div>
+   710→
+   711→      {/* Trending */}
+   712→      <TrendingWidget />
+   713→    </div>
+   714→  )
+   715→}
+   716→
+   717→function KpiCard({
+   718→  label,
+   719→  value,
+   720→  icon,
+   721→  format,
+   722→  accent,
+   723→}: {
+   724→  label: string
+   725→  value: number
+   726→  icon: ReactNode
+   727→  format?: (n: number) => string
+   728→  accent?: boolean
+   729→}) {
+   730→  return (
+   731→    <div className="surface lift rounded-xl p-5">
+   732→      <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+   733→        {label}
+   734→      </p>
+   735→      <p
+   736→        className={`mt-2 text-2xl font-semibold ${
+   737→          accent ? 'text-brand' : 'text-foreground'
+   738→        }`}
+   739→      >
+   740→        <AnimatedNumber value={value} format={format} />
+   741→      </p>
+   742→      <div className="mt-3 text-muted-foreground">{icon}</div>
+   743→    </div>
+   744→  )
+   745→}
+   746→
+   747→function ChartTooltip({
+   748→  active,
+   749→  payload,
+   750→  label,
+   751→}: {
+   752→  active?: boolean
+   753→  payload?: { value: number }[]
+   754→  label?: string
+   755→}) {
+   756→  if (!active || !payload || payload.length === 0) return null
+   757→  return (
+   758→    <div className="surface-2 rounded-md p-2 text-xs">
+   759→      <p className="font-mono text-muted-foreground">{label}</p>
+   760→      <p className="mt-0.5 font-semibold text-brand">{payload[0].value} pastes</p>
+   761→    </div>
+   762→  )
+   763→}
+   764→
+   765→/* ---------------- Trending Widget (Overview) ---------------- */
+   766→
+   767→function TrendingWidget() {
+   768→  const goView = useAppStore((s) => s.goView)
+   769→  const [days, setDays] = useState<number>(7)
+   770→  const [rows, setRows] = useState<SafePaste[]>([])
+   771→  const [loading, setLoading] = useState(true)
+   772→
+   773→  useEffect(() => {
+   774→    let active = true
+   775→    api.admin
+   776→      .trending(5, days)
+   777→      .then((r) => {
+   778→        if (active) setRows(r)
+   779→      })
+   780→      .catch((err) => {
+   781→        if (active)
+   782→          toast.error(
+   783→            err instanceof ApiError
+   784→              ? err.message
+   785→              : 'Failed to load trending pastes.',
+   786→          )
+   787→      })
+   788→      .finally(() => {
+   789→        if (active) setLoading(false)
+   790→      })
+   791→    return () => {
+   792→      active = false
+   793→    }
+   794→  }, [days])
+   795→
+   796→  const ranges: { value: number; label: string }[] = [
+   797→    { value: 7, label: '7d' },
+   798→    { value: 30, label: '30d' },
+   799→    { value: 0, label: 'All' },
+   800→  ]
+   801→
+   802→  return (
+   803→    <Reveal variant={fadeUp}>
+   804→      <div className="surface rounded-xl p-5">
+   805→        <div className="mb-4 flex items-center justify-between">
+   806→          <h3 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+   807→            <Flame className="h-3.5 w-3.5 text-brand-2" />
+   808→            trending now
+   809→          </h3>
+   810→          <div className="flex items-center gap-1 rounded-md bg-surface-3 p-0.5">
+   811→            {ranges.map((r) => (
+   812→              <button
+   813→                key={r.value}
+   814→                type="button"
+   815→                onClick={() => setDays(r.value)}
+   816→                className={`rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+   817→                  days === r.value
+   818→                    ? 'bg-brand/15 text-brand'
+   819→                    : 'text-muted-foreground hover:text-foreground'
+   820→                }`}
+   821→              >
+   822→                {r.label}
+   823→              </button>
+   824→            ))}
+   825→          </div>
+   826→        </div>
+   827→        {loading ? (
+   828→          <div className="space-y-2">
+   829→            {[0, 1, 2, 3, 4].map((i) => (
+   830→              <div key={i} className="shimmer h-11 rounded-md" />
+   831→            ))}
+   832→          </div>
+   833→        ) : rows.length === 0 ? (
+   834→          <p className="py-8 text-center text-sm text-muted-foreground">
+   835→            No trending pastes yet.
+   836→          </p>
+   837→        ) : (
+   838→          <motion.div
+   839→            variants={staggerContainer(0.06)}
+   840→            initial="hidden"
+   841→            animate="show"
+   842→            className="space-y-0.5"
+   843→          >
+   844→            {rows.map((p, i) => (
+   845→              <motion.button
+   846→                key={p.id}
+   847→                variants={fadeUp}
+   848→                type="button"
+   849→                onClick={() => goView(p.slug)}
+   850→                className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-surface-3"
+   851→              >
+   852→                <span className="font-mono w-5 text-center text-sm font-semibold text-brand">
+   853→                  {i + 1}
+   854→                </span>
+   855→                <div className="min-w-0 flex-1">
+   856→                  <p className="truncate text-sm font-medium">
+   857→                    {p.title || `/${p.slug}`}
+   858→                  </p>
+   859→                  <p className="font-mono text-[10px] text-muted-foreground">
+   860→                    {formatRelativeTime(p.createdAt)}
+   861→                  </p>
+   862→                </div>
+   863→                <span className="font-mono shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+   864→                  {p.language}
+   865→                </span>
+   866→                <span className="flex shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground">
+   867→                  <Eye className="h-3 w-3" />
+   868→                  {p.viewCount}
+   869→                </span>
+   870→              </motion.button>
+   871→            ))}
+   872→          </motion.div>
+   873→        )}
+   874→      </div>
+   875→    </Reveal>
+   876→  )
+   877→}
+   878→
+   879→/* ---------------- Users ---------------- */
+   880→
+   881→function UsersTab() {
+   882→  const me = useAppStore((s) => s.user)!
+   883→  const [rows, setRows] = useState<UserRow[]>([])
+   884→  const [loading, setLoading] = useState(true)
+   885→  const [q, setQ] = useState('')
+   886→  const [status, setStatus] = useState<string>('all')
+   887→  const [confirm, setConfirm] = useState<{
+   888→    user: UserRow
+   889→    action: 'delete' | 'ban' | 'suspend'
+   890→  } | null>(null)
+   891→  const [busy, setBusy] = useState(false)
+   892→
+   893→  async function fetchUsers() {
+   894→    setLoading(true)
+   895→    try {
+   896→      const r = await api.admin.listUsers(
+   897→        q || undefined,
+   898→        status === 'all' ? undefined : status,
+   899→      )
+   900→      setRows(r)
+   901→    } catch (err) {
+   902→      toast.error(err instanceof ApiError ? err.message : 'Failed to load users.')
+   903→    } finally {
+   904→      setLoading(false)
+   905→    }
+   906→  }
+   907→
+   908→  useEffect(() => {
+   909→    fetchUsers()
+   910→  }, [status])
+   911→
+   912→  async function patchUser(
+   913→    u: UserRow,
+   914→    patch: { status?: string; role?: string; verify?: boolean },
+   915→  ) {
+   916→    if (u.id === me.id && (patch.status === 'banned' || patch.status === 'suspended')) {
+   917→      toast.error('You cannot suspend or ban yourself.')
+   918→      return
+   919→    }
+   920→    try {
+   921→      const res = await api.admin.updateUser(u.id, patch)
+   922→      const updated = res[0] as UserRow | undefined
+   923→      if (updated) {
+   924→        setRows((cur) => cur.map((x) => (x.id === u.id ? { ...x, ...updated } : x)))
+   925→        toast.success('User updated')
+   926→      }
+   927→    } catch (err) {
+   928→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+   929→    }
+   930→  }
+   931→
+   932→  async function doConfirm() {
+   933→    if (!confirm) return
+   934→    setBusy(true)
+   935→    try {
+   936→      if (confirm.action === 'delete') {
+   937→        if (confirm.user.id === me.id) {
+   938→          toast.error('You cannot delete yourself.')
+   939→          return
+   940→        }
+   941→        await api.admin.deleteUser(confirm.user.id)
+   942→        setRows((cur) => cur.filter((x) => x.id !== confirm.user.id))
+   943→        toast.success('User deleted')
+   944→      } else if (confirm.action === 'ban') {
+   945→        if (confirm.user.id === me.id) {
+   946→          toast.error('You cannot ban yourself.')
+   947→          return
+   948→        }
+   949→        const res = await api.admin.updateUser(confirm.user.id, { status: 'banned' })
+   950→        const updated = res[0] as UserRow | undefined
+   951→        if (updated)
+   952→          setRows((cur) =>
+   953→            cur.map((x) => (x.id === confirm.user.id ? { ...x, ...updated } : x)),
+   954→          )
+   955→        toast.success('User banned')
+   956→      } else if (confirm.action === 'suspend') {
+   957→        if (confirm.user.id === me.id) {
+   958→          toast.error('You cannot suspend yourself.')
+   959→          return
+   960→        }
+   961→        const res = await api.admin.updateUser(confirm.user.id, { status: 'suspended' })
+   962→        const updated = res[0] as UserRow | undefined
+   963→        if (updated)
+   964→          setRows((cur) =>
+   965→            cur.map((x) => (x.id === confirm.user.id ? { ...x, ...updated } : x)),
+   966→          )
+   967→        toast.success('User suspended')
+   968→      }
+   969→    } catch (err) {
+   970→      toast.error(err instanceof ApiError ? err.message : 'Action failed.')
+   971→    } finally {
+   972→      setBusy(false)
+   973→      setConfirm(null)
+   974→    }
+   975→  }
+   976→
+   977→  return (
+   978→    <div className="space-y-4">
+   979→      {/* Filter bar */}
+   980→      <Reveal variant={fadeUp}>
+   981→        <div className="surface flex flex-wrap items-center gap-2 rounded-xl p-3">
+   982→          <div className="relative min-w-[200px] flex-1">
+   983→            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+   984→            <Input
+   985→              placeholder="Search by email or name…"
+   986→              value={q}
+   987→              onChange={(e) => setQ(e.target.value)}
+   988→              onKeyDown={(e) => e.key === 'Enter' && fetchUsers()}
+   989→              className={`${INPUT_CLASS} pl-9`}
+   990→            />
+   991→          </div>
+   992→          <Select value={status} onValueChange={setStatus}>
+   993→            <SelectTrigger className={`${INPUT_CLASS} w-[140px]`}>
+   994→              <SelectValue placeholder="Status" />
+   995→            </SelectTrigger>
+   996→            <SelectContent>
+   997→              <SelectItem value="all">All</SelectItem>
+   998→              <SelectItem value="active">Active</SelectItem>
+   999→              <SelectItem value="pending_verification">Pending</SelectItem>
+  1000→              <SelectItem value="suspended">Suspended</SelectItem>
+  1001→              <SelectItem value="banned">Banned</SelectItem>
+  1002→            </SelectContent>
+  1003→          </Select>
+  1004→          <Button
+  1005→            onClick={fetchUsers}
+  1006→            className="bg-brand text-brand-foreground hover:bg-brand/90"
+  1007→            size="sm"
+  1008→          >
+  1009→            <Search className="h-3.5 w-3.5" /> Search
+  1010→          </Button>
+  1011→        </div>
+  1012→      </Reveal>
+  1013→
+  1014→      {/* Table */}
+  1015→      <Reveal variant={fadeUp} delay={0.05}>
+  1016→        <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+  1017→          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+  1018→            <Table>
+  1019→              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+  1020→                <TableRow className="border-border hover:bg-transparent">
+  1021→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1022→                    User
+  1023→                  </TableHead>
+  1024→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1025→                    Role
+  1026→                  </TableHead>
+  1027→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1028→                    Status
+  1029→                  </TableHead>
+  1030→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1031→                    Pastes
+  1032→                  </TableHead>
+  1033→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1034→                    Created
+  1035→                  </TableHead>
+  1036→                  <TableHead className="px-4" />
+  1037→                </TableRow>
+  1038→              </TableHeader>
+  1039→              <motion.tbody
+  1040→                variants={staggerContainer(0.04)}
+  1041→                initial="hidden"
+  1042→                animate="show"
+  1043→              >
+  1044→                {loading ? (
+  1045→                  <TableRow>
+  1046→                    <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+  1047→                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+  1048→                      Loading users…
+  1049→                    </TableCell>
+  1050→                  </TableRow>
+  1051→                ) : rows.length === 0 ? (
+  1052→                  <TableRow>
+  1053→                    <TableCell colSpan={6} className="px-4 py-12 text-center text-sm text-muted-foreground">
+  1054→                      No users found.
+  1055→                    </TableCell>
+  1056→                  </TableRow>
+  1057→                ) : (
+  1058→                  rows.map((u) => {
+  1059→                    const uname = u.displayName || u.email.split('@')[0]
+  1060→                    const initials = uname.slice(0, 2).toUpperCase()
+  1061→                    const isSelf = u.id === me.id
+  1062→                    return (
+  1063→                      <motion.tr
+  1064→                        key={u.id}
+  1065→                        variants={fadeUp}
+  1066→                        className="border-border border-b transition-colors hover:bg-surface-3"
+  1067→                      >
+  1068→                        <TableCell className="px-4 py-3">
+  1069→                          <div className="flex items-center gap-2.5">
+  1070→                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-2 text-[10px] font-bold text-brand-foreground">
+  1071→                              {initials}
+  1072→                            </div>
+  1073→                            <div className="min-w-0">
+  1074→                              <p className="truncate text-sm font-medium">
+  1075→                                {uname}
+  1076→                                {isSelf && (
+  1077→                                  <span className="ml-1.5 text-[10px] text-brand">(you)</span>
+  1078→                                )}
+  1079→                              </p>
+  1080→                              <p className="truncate text-[11px] text-muted-foreground">
+  1081→                                {u.email}
+  1082→                              </p>
+  1083→                            </div>
+  1084→                          </div>
+  1085→                        </TableCell>
+  1086→                        <TableCell className="px-4 py-3">
+  1087→                          <RoleBadge role={u.role} />
+  1088→                        </TableCell>
+  1089→                        <TableCell className="px-4 py-3">
+  1090→                          <UserStatusBadge status={u.status} />
+  1091→                        </TableCell>
+  1092→                        <TableCell className="font-mono px-4 py-3 text-xs">
+  1093→                          {u.pasteCount ?? 0}
+  1094→                        </TableCell>
+  1095→                        <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+  1096→                          {formatRelativeTime(u.createdAt)}
+  1097→                        </TableCell>
+  1098→                        <TableCell className="px-4 py-3 text-right">
+  1099→                          <DropdownMenu>
+  1100→                            <DropdownMenuTrigger asChild>
+  1101→                              <Button variant="ghost" size="icon" className="h-8 w-8">
+  1102→                                <MoreHorizontal className="h-4 w-4" />
+  1103→                              </Button>
+  1104→                            </DropdownMenuTrigger>
+  1105→                            <DropdownMenuContent align="end" className="w-44">
+  1106→                              {u.status !== 'active' && (
+  1107→                                <DropdownMenuItem
+  1108→                                  onClick={() =>
+  1109→                                    patchUser(u, { status: 'active' })
+  1110→                                  }
+  1111→                                >
+  1112→                                  <CheckCircle2 className="h-3.5 w-3.5" /> Activate
+  1113→                                </DropdownMenuItem>
+  1114→                              )}
+  1115→                              {u.status !== 'suspended' && !isSelf && (
+  1116→                                <DropdownMenuItem
+  1117→                                  onClick={() =>
+  1118→                                    setConfirm({ user: u, action: 'suspend' })
+  1119→                                  }
+  1120→                                >
+  1121→                                  <Pause className="h-3.5 w-3.5" /> Suspend
+  1122→                                </DropdownMenuItem>
+  1123→                              )}
+  1124→                              {u.status !== 'banned' && !isSelf && (
+  1125→                                <DropdownMenuItem
+  1126→                                  onClick={() =>
+  1127→                                    setConfirm({ user: u, action: 'ban' })
+  1128→                                  }
+  1129→                                >
+  1130→                                  <Ban className="h-3.5 w-3.5" /> Ban
+  1131→                                </DropdownMenuItem>
+  1132→                              )}
+  1133→                              <DropdownMenuSeparator />
+  1134→                              {u.role !== 'admin' ? (
+  1135→                                <DropdownMenuItem
+  1136→                                  onClick={() =>
+  1137→                                    patchUser(u, { role: 'admin' })
+  1138→                                  }
+  1139→                                >
+  1140→                                  <ArrowUpCircle className="h-3.5 w-3.5" /> Promote to admin
+  1141→                                </DropdownMenuItem>
+  1142→                              ) : (
+  1143→                                !isSelf && (
+  1144→                                  <DropdownMenuItem
+  1145→                                    onClick={() =>
+  1146→                                      patchUser(u, { role: 'user' })
+  1147→                                    }
+  1148→                                  >
+  1149→                                    <ArrowDownCircle className="h-3.5 w-3.5" /> Demote to user
+  1150→                                  </DropdownMenuItem>
+  1151→                                )
+  1152→                              )}
+  1153→                              <DropdownMenuSeparator />
+  1154→                              <DropdownMenuItem
+  1155→                                variant="destructive"
+  1156→                                disabled={isSelf}
+  1157→                                onClick={() =>
+  1158→                                  setConfirm({ user: u, action: 'delete' })
+  1159→                                }
+  1160→                              >
+  1161→                                <Trash2 className="h-3.5 w-3.5" /> Delete
+  1162→                              </DropdownMenuItem>
+  1163→                            </DropdownMenuContent>
+  1164→                          </DropdownMenu>
+  1165→                        </TableCell>
+  1166→                      </motion.tr>
+  1167→                    )
+  1168→                  })
+  1169→                )}
+  1170→              </motion.tbody>
+  1171→            </Table>
+  1172→          </div>
+  1173→        </div>
+  1174→      </Reveal>
+  1175→
+  1176→      {/* Confirm dialog */}
+  1177→      <AlertDialog
+  1178→        open={!!confirm}
+  1179→        onOpenChange={(o) => !o && setConfirm(null)}
+  1180→      >
+  1181→        <AlertDialogContent>
+  1182→          <AlertDialogHeader>
+  1183→            <AlertDialogTitle>
+  1184→              {confirm?.action === 'delete'
+  1185→                ? 'Delete user?'
+  1186→                : confirm?.action === 'ban'
+  1187→                  ? 'Ban user?'
+  1188→                  : 'Suspend user?'}
+  1189→            </AlertDialogTitle>
+  1190→            <AlertDialogDescription>
+  1191→              {confirm?.action === 'delete' ? (
+  1192→                <>
+  1193→                  This will permanently delete{' '}
+  1194→                  <span className="font-mono text-foreground">
+  1195→                    {confirm?.user.email}
+  1196→                  </span>{' '}
+  1197→                  and all their pastes. This cannot be undone.
+  1198→                </>
+  1199→              ) : (
+  1200→                <>
+  1201→                  {confirm?.action === 'ban'
+  1202→                    ? 'Banned users cannot log in.'
+  1203→                    : 'Suspended users cannot log in until reactivated.'}
+  1204→                </>
+  1205→              )}
+  1206→            </AlertDialogDescription>
+  1207→          </AlertDialogHeader>
+  1208→          <AlertDialogFooter>
+  1209→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1210→            <AlertDialogAction
+  1211→              className={
+  1212→                confirm?.action === 'delete'
+  1213→                  ? 'bg-destructive text-white hover:bg-destructive/90'
+  1214→                  : 'bg-amber-500 text-white hover:bg-amber-500/90'
+  1215→              }
+  1216→              onClick={doConfirm}
+  1217→              disabled={busy}
+  1218→            >
+  1219→              {busy ? (
+  1220→                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  1221→              ) : confirm?.action === 'delete' ? (
+  1222→                'Delete'
+  1223→              ) : confirm?.action === 'ban' ? (
+  1224→                'Ban'
+  1225→              ) : (
+  1226→                'Suspend'
+  1227→              )}
+  1228→            </AlertDialogAction>
+  1229→          </AlertDialogFooter>
+  1230→        </AlertDialogContent>
+  1231→      </AlertDialog>
+  1232→    </div>
+  1233→  )
+  1234→}
+  1235→
+  1236→function RoleBadge({ role }: { role: SafeUser['role'] }) {
+  1237→  if (role === 'admin')
+  1238→    return (
+  1239→      <span className="inline-flex items-center gap-1 rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+  1240→        <Shield className="h-2.5 w-2.5" /> admin
+  1241→      </span>
+  1242→    )
+  1243→  return (
+  1244→    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+  1245→      user
+  1246→    </span>
+  1247→  )
+  1248→}
+  1249→
+  1250→function UserStatusBadge({ status }: { status: SafeUser['status'] }) {
+  1251→  if (status === 'active')
+  1252→    return (
+  1253→      <span className="inline-flex items-center gap-1 rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+  1254→        active
+  1255→      </span>
+  1256→    )
+  1257→  if (status === 'suspended')
+  1258→    return (
+  1259→      <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
+  1260→        suspended
+  1261→      </span>
+  1262→    )
+  1263→  if (status === 'banned')
+  1264→    return (
+  1265→      <span className="inline-flex items-center gap-1 rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+  1266→        banned
+  1267→      </span>
+  1268→    )
+  1269→  return (
+  1270→    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+  1271→      pending
+  1272→    </span>
+  1273→  )
+  1274→}
+  1275→
+  1276→/* ---------------- Content ---------------- */
+  1277→
+  1278→function ContentTab() {
+  1279→  const [rows, setRows] = useState<SafePaste[]>([])
+  1280→  const [loading, setLoading] = useState(true)
+  1281→  const [q, setQ] = useState('')
+  1282→  const [flaggedOnly, setFlaggedOnly] = useState(false)
+  1283→  const [expiredOnly, setExpiredOnly] = useState(false)
+  1284→  const [confirmDelete, setConfirmDelete] = useState<SafePaste | null>(null)
+  1285→  const [busy, setBusy] = useState(false)
+  1286→  // Edit dialog state
+  1287→  const [editTarget, setEditTarget] = useState<SafePaste | null>(null)
+  1288→  const [editForm, setEditForm] = useState<EditForm | null>(null)
+  1289→  const [editLoading, setEditLoading] = useState(false)
+  1290→  const [editSaving, setEditSaving] = useState(false)
+  1291→  // View-count dialog state
+  1292→  const [viewCountTarget, setViewCountTarget] = useState<SafePaste | null>(null)
+  1293→  const [viewCountInput, setViewCountInput] = useState('')
+  1294→  const [viewCountSaving, setViewCountSaving] = useState(false)
+  1295→
+  1296→  async function fetchPastes() {
+  1297→    setLoading(true)
+  1298→    try {
+  1299→      const r = await api.admin.listPastes({
+  1300→        q: q || undefined,
+  1301→        flagged: flaggedOnly || undefined,
+  1302→        expired: expiredOnly || undefined,
+  1303→      })
+  1304→      setRows(r)
+  1305→    } catch (err) {
+  1306→      toast.error(err instanceof ApiError ? err.message : 'Failed to load pastes.')
+  1307→    } finally {
+  1308→      setLoading(false)
+  1309→    }
+  1310→  }
+  1311→
+  1312→  useEffect(() => {
+  1313→    fetchPastes()
+  1314→  }, [flaggedOnly, expiredOnly])
+  1315→
+  1316→  async function patchPaste(
+  1317→    p: SafePaste,
+  1318→    patch: { isFlagged?: boolean; visibility?: string; forceExpire?: boolean },
+  1319→  ) {
+  1320→    try {
+  1321→      const res = await api.admin.updatePaste(p.id, patch)
+  1322→      const updated = res[0] as SafePaste | undefined
+  1323→      if (updated)
+  1324→        setRows((cur) => cur.map((x) => (x.id === p.id ? updated : x)))
+  1325→      toast.success('Paste updated')
+  1326→    } catch (err) {
+  1327→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+  1328→    }
+  1329→  }
+  1330→
+  1331→  async function doDelete() {
+  1332→    if (!confirmDelete) return
+  1333→    setBusy(true)
+  1334→    try {
+  1335→      await api.admin.deletePaste(confirmDelete.id)
+  1336→      setRows((cur) => cur.filter((x) => x.id !== confirmDelete.id))
+  1337→      toast.success('Paste deleted')
+  1338→    } catch (err) {
+  1339→      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+  1340→    } finally {
+  1341→      setBusy(false)
+  1342→      setConfirmDelete(null)
+  1343→    }
+  1344→  }
+  1345→
+  1346→  /** Silent refetch (no loading flicker) — used after mutations. */
+  1347→  async function refreshList() {
+  1348→    try {
+  1349→      const r = await api.admin.listPastes({
+  1350→        q: q || undefined,
+  1351→        flagged: flaggedOnly || undefined,
+  1352→        expired: expiredOnly || undefined,
+  1353→      })
+  1354→      setRows(r)
+  1355→    } catch {
+  1356→      /* silent — mutation toast already surfaced */
+  1357→    }
+  1358→  }
+  1359→
+  1360→  async function openEdit(p: SafePaste) {
+  1361→    const { preset, custom } = deriveExpiryFromPaste(p)
+  1362→    setEditTarget(p)
+  1363→    setEditForm({
+  1364→      title: p.title || '',
+  1365→      description: p.description || '',
+  1366→      tags: p.tags.join(', '),
+  1367→      language: p.language || 'plaintext',
+  1368→      visibility: p.visibility,
+  1369→      textContent: '',
+  1370→      textFetchOk: false,
+  1371→      textLoading: false,
+  1372→      viewCount: String(p.viewCount),
+  1373→      expiryPreset: preset,
+  1374→      expiryCustom: custom,
+  1375→    })
+  1376→    // For safe text pastes, fetch existing content so the admin can edit it.
+  1377→    // Skip for expired/burned/burn-after-read (fetching would hard-delete or burn).
+  1378→    if (p.contentType === 'text' && !p.isExpired && !p.isBurned && !p.burnAfterRead) {
+  1379→      setEditLoading(true)
+  1380→      setEditForm((f) => (f ? { ...f, textLoading: true } : f))
+  1381→      try {
+  1382→        const res = await api.getPaste(p.slug)
+  1383→        const full = res[0]
+  1384→        setEditForm((f) =>
+  1385→          f
+  1386→            ? {
+  1387→                ...f,
+  1388→                textContent: full?.textContent ?? '',
+  1389→                textFetchOk: true,
+  1390→                textLoading: false,
+  1391→              }
+  1392→            : f,
+  1393→        )
+  1394→      } catch {
+  1395→        setEditForm((f) => (f ? { ...f, textFetchOk: false, textLoading: false } : f))
+  1396→      } finally {
+  1397→        setEditLoading(false)
+  1398→      }
+  1399→    } else if (p.contentType === 'text') {
+  1400→      // Unsafe to fetch — leave textContent empty; save only sends if user typed.
+  1401→      setEditForm((f) => (f ? { ...f, textFetchOk: false, textLoading: false } : f))
+  1402→    } else {
+  1403→      // File paste — no text content field.
+  1404→      setEditForm((f) => (f ? { ...f, textFetchOk: true, textLoading: false } : f))
+  1405→    }
+  1406→  }
+  1407→
+  1408→  function closeEdit() {
+  1409→    setEditTarget(null)
+  1410→    setEditForm(null)
+  1411→  }
+  1412→
+  1413→  async function saveEdit() {
+  1414→    if (!editTarget || !editForm) return
+  1415→    setEditSaving(true)
+  1416→    try {
+  1417→      const patch: Record<string, unknown> = {
+  1418→        title: editForm.title.trim(),
+  1419→        description: editForm.description.trim(),
+  1420→        tags: editForm.tags.trim(),
+  1421→        language: editForm.language,
+  1422→        visibility: editForm.visibility,
+  1423→        viewCount: Math.max(0, parseInt(editForm.viewCount, 10) || 0),
+  1424→      }
+  1425→      // textContent: send if we loaded it (even empty = explicit clear),
+  1426→      // OR if user typed new content into an unloaded field.
+  1427→      if (editTarget.contentType === 'text') {
+  1428→        if (editForm.textFetchOk || editForm.textContent.length > 0) {
+  1429→          patch.textContent = editForm.textContent
+  1430→        }
+  1431→      }
+  1432→      // Expiry
+  1433→      if (editForm.expiryPreset === 'never') {
+  1434→        patch.expiresAt = null
+  1435→      } else if (editForm.expiryPreset === 'custom') {
+  1436→        if (editForm.expiryCustom) {
+  1437→          const d = new Date(editForm.expiryCustom)
+  1438→          if (!isNaN(d.getTime())) patch.expiresAt = d.toISOString()
+  1439→        }
+  1440→      } else {
+  1441→        const ms = PRESET_MS[editForm.expiryPreset]
+  1442→        if (ms) patch.expiresAt = new Date(Date.now() + ms).toISOString()
+  1443→      }
+  1444→      await api.admin.editPaste(editTarget.id, patch)
+  1445→      toast.success('Paste updated')
+  1446→      closeEdit()
+  1447→      await refreshList()
+  1448→    } catch (err) {
+  1449→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+  1450→    } finally {
+  1451→      setEditSaving(false)
+  1452→    }
+  1453→  }
+  1454→
+  1455→  async function resetViews(p: SafePaste) {
+  1456→    try {
+  1457→      await api.admin.editPaste(p.id, { resetViews: true })
+  1458→      toast.success('View count reset to 0')
+  1459→      await refreshList()
+  1460→    } catch (err) {
+  1461→      toast.error(err instanceof ApiError ? err.message : 'Reset failed.')
+  1462→    }
+  1463→  }
+  1464→
+  1465→  function openViewCountEdit(p: SafePaste) {
+  1466→    setViewCountTarget(p)
+  1467→    setViewCountInput(String(p.viewCount))
+  1468→  }
+  1469→
+  1470→  function closeViewCountEdit() {
+  1471→    setViewCountTarget(null)
+  1472→    setViewCountInput('')
+  1473→  }
+  1474→
+  1475→  async function saveViewCount() {
+  1476→    if (!viewCountTarget) return
+  1477→    const n = Math.max(0, parseInt(viewCountInput, 10) || 0)
+  1478→    setViewCountSaving(true)
+  1479→    try {
+  1480→      await api.admin.editPaste(viewCountTarget.id, { viewCount: n })
+  1481→      toast.success(`View count set to ${n}`)
+  1482→      closeViewCountEdit()
+  1483→      await refreshList()
+  1484→    } catch (err) {
+  1485→      toast.error(err instanceof ApiError ? err.message : 'Update failed.')
+  1486→    } finally {
+  1487→      setViewCountSaving(false)
+  1488→    }
+  1489→  }
+  1490→
+  1491→  // Default view hides expired + burned pastes (backend hard-deletes on access,
+  1492→  // but some may linger). "Expired only" toggle surfaces them via ?expired=1.
+  1493→  const displayedRows = expiredOnly
+  1494→    ? rows
+  1495→    : rows.filter((p) => !p.isExpired && !p.isBurned)
+  1496→
+  1497→  return (
+  1498→    <div className="space-y-4">
+  1499→      {/* Filter bar */}
+  1500→      <Reveal variant={fadeUp}>
+  1501→        <div className="surface flex flex-wrap items-center gap-3 rounded-xl p-3">
+  1502→          <div className="relative min-w-[200px] flex-1">
+  1503→            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+  1504→            <Input
+  1505→              placeholder="Search by title, slug, or owner…"
+  1506→              value={q}
+  1507→              onChange={(e) => setQ(e.target.value)}
+  1508→              onKeyDown={(e) => e.key === 'Enter' && fetchPastes()}
+  1509→              className={`${INPUT_CLASS} pl-9`}
+  1510→            />
+  1511→          </div>
+  1512→          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+  1513→            <Switch
+  1514→              checked={flaggedOnly}
+  1515→              onCheckedChange={setFlaggedOnly}
+  1516→            />
+  1517→            Flagged only
+  1518→          </label>
+  1519→          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+  1520→            <Switch
+  1521→              checked={expiredOnly}
+  1522→              onCheckedChange={setExpiredOnly}
+  1523→            />
+  1524→            Expired only
+  1525→          </label>
+  1526→          <Button
+  1527→            onClick={fetchPastes}
+  1528→            className="bg-brand text-brand-foreground hover:bg-brand/90"
+  1529→            size="sm"
+  1530→          >
+  1531→            <Search className="h-3.5 w-3.5" /> Search
+  1532→          </Button>
+  1533→        </div>
+  1534→      </Reveal>
+  1535→
+  1536→      {/* Table */}
+  1537→      <Reveal variant={fadeUp} delay={0.05}>
+  1538→        <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+  1539→          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+  1540→            <Table>
+  1541→              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+  1542→                <TableRow className="border-border hover:bg-transparent">
+  1543→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1544→                    Title
+  1545→                  </TableHead>
+  1546→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1547→                    Type
+  1548→                  </TableHead>
+  1549→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1550→                    Lang
+  1551→                  </TableHead>
+  1552→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1553→                    Vis
+  1554→                  </TableHead>
+  1555→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1556→                    Views
+  1557→                  </TableHead>
+  1558→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1559→                    Status
+  1560→                  </TableHead>
+  1561→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1562→                    Owner
+  1563→                  </TableHead>
+  1564→                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+  1565→                    Created
+  1566→                  </TableHead>
+  1567→                  <TableHead className="px-4" />
+  1568→                </TableRow>
+  1569→              </TableHeader>
+  1570→              <motion.tbody
+  1571→                variants={staggerContainer(0.04)}
+  1572→                initial="hidden"
+  1573→                animate="show"
+  1574→              >
+  1575→                {loading ? (
+  1576→                  <TableRow>
+  1577→                    <TableCell colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+  1578→                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+  1579→                      Loading pastes…
+  1580→                    </TableCell>
+  1581→                  </TableRow>
+  1582→                ) : displayedRows.length === 0 ? (
+  1583→                  <TableRow>
+  1584→                    <TableCell colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+  1585→                      {expiredOnly
+  1586→                        ? 'No expired pastes found.'
+  1587→                        : flaggedOnly
+  1588→                          ? 'No flagged pastes found.'
+  1589→                          : 'No pastes found.'}
+  1590→                    </TableCell>
+  1591→                  </TableRow>
+  1592→                ) : (
+  1593→                  displayedRows.map((p) => (
+  1594→                    <motion.tr
+  1595→                      key={p.id}
+  1596→                      variants={fadeUp}
+  1597→                      className="border-border border-b transition-colors hover:bg-surface-3"
+  1598→                    >
+  1599→                      <TableCell className="px-4 py-3">
+  1600→                        <div className="min-w-0">
+  1601→                          <p className="max-w-[200px] truncate text-sm font-medium">
+  1602→                            {p.title || `/${p.slug}`}
+  1603→                          </p>
+  1604→                          <p className="font-mono max-w-[200px] truncate text-[11px] text-muted-foreground">
+  1605→                            {p.slug}
+  1606→                          </p>
+  1607→                        </div>
+  1608→                      </TableCell>
+  1609→                      <TableCell className="px-4 py-3">
+  1610→                        <span className="font-mono text-[11px] text-muted-foreground">
+  1611→                          {p.contentType}
+  1612→                        </span>
+  1613→                      </TableCell>
+  1614→                      <TableCell className="px-4 py-3">
+  1615→                        <span className="font-mono text-[11px] text-muted-foreground">
+  1616→                          {p.language}
+  1617→                        </span>
+  1618→                      </TableCell>
+  1619→                      <TableCell className="px-4 py-3">
+  1620→                        <span className="font-mono text-[11px] capitalize text-muted-foreground">
+  1621→                          {p.visibility}
+  1622→                        </span>
+  1623→                      </TableCell>
+  1624→                      <TableCell className="font-mono px-4 py-3 text-xs">
+  1625→                        {p.viewCount}
+  1626→                      </TableCell>
+  1627→                      <TableCell className="px-4 py-3">
+  1628→                        <div className="flex flex-wrap gap-1">
+  1629→                          {p.isExpired && (
+  1630→                            <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+  1631→                              expired
+  1632→                            </span>
+  1633→                          )}
+  1634→                          {p.isBurned && (
+  1635→                            <span className="inline-flex items-center rounded-md bg-brand-2/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-2">
+  1636→                              burned
+  1637→                            </span>
+  1638→                          )}
+  1639→                          {p.isFlagged && (
+  1640→                            <span className="inline-flex items-center rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+  1641→                              flagged
+  1642→                            </span>
+  1643→                          )}
+  1644→                          {!p.isExpired && !p.isBurned && !p.isFlagged && (
+  1645→                            <span className="inline-flex items-center rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+  1646→                              active
+  1647→                            </span>
+  1648→                          )}
+  1649→                        </div>
+  1650→                      </TableCell>
+  1651→                      <TableCell className="px-4 py-3">
+  1652→                        <span className="text-[11px] text-muted-foreground">
+  1653→                          {p.ownerName || 'guest'}
+  1654→                        </span>
+  1655→                      </TableCell>
+  1656→                      <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+  1657→                        {formatRelativeTime(p.createdAt)}
+  1658→                      </TableCell>
+  1659→                      <TableCell className="px-4 py-3 text-right">
+  1660→                        <DropdownMenu>
+  1661→                          <DropdownMenuTrigger asChild>
+  1662→                            <Button variant="ghost" size="icon" className="h-8 w-8">
+  1663→                              <MoreHorizontal className="h-4 w-4" />
+  1664→                            </Button>
+  1665→                          </DropdownMenuTrigger>
+  1666→                          <DropdownMenuContent align="end" className="w-48">
+  1667→                            <DropdownMenuItem onClick={() => openEdit(p)}>
+  1668→                              <Pencil className="h-3.5 w-3.5" /> Edit details
+  1669→                            </DropdownMenuItem>
+  1670→                            <DropdownMenuItem onClick={() => resetViews(p)}>
+  1671→                              <RotateCcw className="h-3.5 w-3.5" /> Reset views
+  1672→                            </DropdownMenuItem>
+  1673→                            <DropdownMenuItem
+  1674→                              onClick={() => openViewCountEdit(p)}
+  1675→                            >
+  1676→                              <Eye className="h-3.5 w-3.5" /> Edit view count
+  1677→                            </DropdownMenuItem>
+  1678→                            <DropdownMenuSeparator />
+  1679→                            <DropdownMenuItem
+  1680→                              onClick={() =>
+  1681→                                patchPaste(p, { isFlagged: !p.isFlagged })
+  1682→                              }
+  1683→                            >
+  1684→                              <Flag className="h-3.5 w-3.5" />
+  1685→                              {p.isFlagged ? 'Unflag' : 'Flag'}
+  1686→                            </DropdownMenuItem>
+  1687→                            {!p.isExpired && (
+  1688→                              <DropdownMenuItem
+  1689→                                onClick={() =>
+  1690→                                  patchPaste(p, { forceExpire: true })
+  1691→                                }
+  1692→                              >
+  1693→                                <Pause className="h-3.5 w-3.5" /> Force expire
+  1694→                              </DropdownMenuItem>
+  1695→                            )}
+  1696→                            <DropdownMenuSeparator />
+  1697→                            <DropdownMenuItem
+  1698→                              variant="destructive"
+  1699→                              onClick={() => setConfirmDelete(p)}
+  1700→                            >
+  1701→                              <Trash2 className="h-3.5 w-3.5" /> Delete
+  1702→                            </DropdownMenuItem>
+  1703→                          </DropdownMenuContent>
+  1704→                        </DropdownMenu>
+  1705→                      </TableCell>
+  1706→                    </motion.tr>
+  1707→                  ))
+  1708→                )}
+  1709→              </motion.tbody>
+  1710→            </Table>
+  1711→          </div>
+  1712→        </div>
+  1713→      </Reveal>
+  1714→
+  1715→      <AlertDialog
+  1716→        open={!!confirmDelete}
+  1717→        onOpenChange={(o) => !o && setConfirmDelete(null)}
+  1718→      >
+  1719→        <AlertDialogContent>
+  1720→          <AlertDialogHeader>
+  1721→            <AlertDialogTitle>Delete paste?</AlertDialogTitle>
+  1722→            <AlertDialogDescription>
+  1723→              This will permanently delete{' '}
+  1724→              <span className="font-mono text-foreground">
+  1725→                {confirmDelete?.slug}
+  1726→              </span>
+  1727→              . This cannot be undone.
+  1728→            </AlertDialogDescription>
+  1729→          </AlertDialogHeader>
+  1730→          <AlertDialogFooter>
+  1731→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1732→            <AlertDialogAction
+  1733→              className="bg-destructive text-white hover:bg-destructive/90"
+  1734→              onClick={doDelete}
+  1735→              disabled={busy}
+  1736→            >
+  1737→              {busy ? (
+  1738→                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  1739→              ) : (
+  1740→                'Delete'
+  1741→              )}
+  1742→            </AlertDialogAction>
+  1743→          </AlertDialogFooter>
+  1744→        </AlertDialogContent>
+  1745→      </AlertDialog>
+  1746→
+  1747→      {/* Edit dialog */}
+  1748→      <Dialog
+  1749→        open={!!editTarget}
+  1750→        onOpenChange={(o) => !o && !editSaving && closeEdit()}
+  1751→      >
+  1752→        <DialogContent className="surface-2 max-h-[85vh] max-w-2xl overflow-y-auto">
+  1753→          <DialogHeader>
+  1754→            <DialogTitle>Edit paste</DialogTitle>
+  1755→            <DialogDescription>
+  1756→              Update details for{' '}
+  1757→              <span className="font-mono text-foreground">
+  1758→                {editTarget?.slug}
+  1759→              </span>
+  1760→              {editTarget?.contentType === 'file' &&
+  1761→                editTarget.originalFileName && (
+  1762→                  <> · {editTarget.originalFileName}</>
+  1763→                )}
+  1764→            </DialogDescription>
+  1765→          </DialogHeader>
+  1766→          {editForm && editTarget && (
+  1767→            <div className="space-y-4 py-2">
+  1768→              {/* Title */}
+  1769→              <div className="space-y-1.5">
+  1770→                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+  1771→                  Title
+  1772→                </Label>
+  1773→                <Input
+  1774→                  value={editForm.title}
+  1775→                  onChange={(e) =>
+  1776→                    setEditForm((f) => (f ? { ...f, title: e.target.value } : f))
+  1777→                  }
+  1778→                  placeholder="Untitled paste"
+  1779→                  className={INPUT_CLASS}
+  1780→                />
+  1781→              </div>
+  1782→
+  1783→              {/* Description */}
+  1784→              <div className="space-y-1.5">
+  1785→                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+  1786→                  Description
+  1787→                </Label>
+  1788→                <Textarea
+  1789→                  value={editForm.description}
+  1790→                  onChange={(e) =>
+  1791→                    setEditForm((f) => (f ? { ...f, description: e.target.value } : f))
+  1792→                  }
+  1793→                  placeholder="Brief description (optional)"
+  1794→                  rows={2}
+  1795→                  className={INPUT_CLASS}
+  1796→                />
+  1797→              </div>
+  1798→
+  1799→              {/* Tags + Language */}
+  1800→              <div className="grid gap-4 sm:grid-cols-2">
+  1801→                <div className="space-y-1.5">
+  1802→                  <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+  1803→                    Tags
+  1804→                  </Label>
+  1805→                  <Input
+  1806→                    value={editForm.tags}
+  1807→                    onChange={(e) =>
+  1808→                      setEditForm((f) => (f ? { ...f, tags: e.target.value } : f))
+  1809→                    }
+  1810→                    placeholder="react, typescript, web"
+  1811→                    className={INPUT_CLASS}
+  1812→                  />
+  1813→                </div>
+  1814→                <div className="space-y-1.5">
+  1815→                  <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+  1816→                    Language
+  1817→                  </Label>
+  1818→                  <Select
+  1819→                    value={editForm.language}
+  1820→                    onValueChange={(v) =>
+  1821→                      setEditForm((f) => (f ? { ...f, language: v } : f))
+  1822→                    }
+  1823→                  >
+  1824→                    <SelectTrigger className={INPUT_CLASS}>
+  1825→                      <SelectValue placeholder="Language" />
+  1826→                    </SelectTrigger>
+  1827→                    <SelectContent>
+  1828→                      {!EDIT_LANGUAGES.some(
+  1829→                        (l) => l.value === editForm.language,
+  1830→                      ) && (
+  1831→                        <SelectItem value={editForm.language}>
+  1832→                          {editForm.language}
+  1833→                        </SelectItem>
+  1834→                      )}
+  1835→                      {EDIT_LANGUAGES.map((l) => (
+  1836→                        <SelectItem key={l.value} value={l.value}>
+  1837→                          {l.label}
+  1838→                        </SelectItem>
+  1839→                      ))}
+  1840→                    </SelectContent>
+  1841→                  </Select>
+  1842→                </div>
+  1843→              </div>
+  1844→
+  1845→              {/* Visibility */}
+  1846→              <div className="space-y-1.5">
+  1847→                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+  1848→                  Visibility
+  1849→                </Label>
+  1850→                <Select
+  1851→                  value={editForm.visibility}
+  1852→                  onValueChange={(v) =>
+  1853→                    setEditForm((f) =>
+  1854→                      f
+  1855→                        ? {
+  1856→                            ...f,
+  1857→                            visibility: v as 'public' | 'unlisted' | 'private',
+  1858→                          }
+  1859→                        : f,
+  1860→                    )
+  1861→                  }
+  1862→                >
+  1863→                  <SelectTrigger className={INPUT_CLASS}>
+  1864→                    <SelectValue placeholder="Visibility" />
+  1865→                  </SelectTrigger>
+  1866→                  <SelectContent>
+  1867→                    <SelectItem value="public">Public</SelectItem>
+  1868→                    <SelectItem value="unlisted">Unlisted</SelectItem>
+  1869→                    <SelectItem value="private">Private</SelectItem>
+  1870→                  </SelectContent>
+  1871→                </Select>
+  1872→              </div>
+  1873→
+  1874→              {/* Text content (text pastes only) */}
+  1875→              {editTarget.contentType === 'text' && (
+  1876→                <div className="space-y-1.5">
+  1877→                  <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+  1878→                    Content
+  1879→                    {editForm.textLoading ? (
+  1880→                      <span className="ml-1 text-brand">(loading…)</span>
+  1881→                    ) : !editForm.textFetchOk ? (
+  1882→                      <span className="ml-1 text-muted-foreground/70">
+  1883→                        (enter new to replace)
+  1884→                      </span>
+  1885→                    ) : null}
+  1886→                  </Label>
+  1887→                  <Textarea
+  1888→                    value={editForm.textContent}
+  1889→                    onChange={(e) =>
+  1890→                      setEditForm((f) => (f ? { ...f, textContent: e.target.value } : f))
+  1891→                    }
+  1892→                    placeholder={
+  1893→                      editForm.textFetchOk
+  1894→                        ? 'Paste content…'
+  1895→                        : 'Type new content to replace existing…'
+  1896→                    }
+  1897→                    rows={7}
+  1898→                    disabled={editForm.textLoading}
+  1899→                    className={`${INPUT_CLASS} font-mono text-xs`}
+  1900→                  />
+  1901→                </div>
+  1902→              )}
+  1903→
+  1904→              {/* View count */}
+  1905→              <div className="space-y-1.5">
+  1906→                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+  1907→                  View count
+  1908→                </Label>
+  1909→                <div className="flex gap-2">
+  1910→                  <Input
+  1911→                    type="number"
+  1912→                    min={0}
+  1913→                    value={editForm.viewCount}
+  1914→                    onChange={(e) =>
+  1915→                      setEditForm((f) => (f ? { ...f, viewCount: e.target.value } : f))
+  1916→                    }
+  1917→                    className={INPUT_CLASS}
+  1918→                  />
+  1919→                  <Button
+  1920→                    type="button"
+  1921→                    variant="outline"
+  1922→                    size="sm"
+  1923→                    className="shrink-0"
+  1924→                    onClick={() =>
+  1925→                      setEditForm((f) => (f ? { ...f, viewCount: '0' } : f))
+  1926→                    }
+  1927→                  >
+  1928→                    <RotateCcw className="h-3.5 w-3.5" /> Reset
+  1929→                  </Button>
+  1930→                </div>
+  1931→              </div>
+  1932→
+  1933→              {/* Expiry */}
+  1934→              <div className="space-y-1.5">
+  1935→                <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+  1936→                  Expiry
+  1937→                </Label>
+  1938→                <Select
+  1939→                  value={editForm.expiryPreset}
+  1940→                  onValueChange={(v) =>
+  1941→                    setEditForm((f) => (f ? { ...f, expiryPreset: v } : f))
+  1942→                  }
+  1943→                >
+  1944→                  <SelectTrigger className={INPUT_CLASS}>
+  1945→                    <SelectValue placeholder="Expiry" />
+  1946→                  </SelectTrigger>
+  1947→                  <SelectContent>
+  1948→                    {EDIT_EXPIRY_OPTIONS.map((o) => (
+  1949→                      <SelectItem key={o.value} value={o.value}>
+  1950→                        {o.label}
+  1951→                      </SelectItem>
+  1952→                    ))}
+  1953→                  </SelectContent>
+  1954→                </Select>
+  1955→                {editForm.expiryPreset === 'custom' && (
+  1956→                  <Input
+  1957→                    type="datetime-local"
+  1958→                    value={editForm.expiryCustom}
+  1959→                    onChange={(e) =>
+  1960→                      setEditForm((f) => (f ? { ...f, expiryCustom: e.target.value } : f))
+  1961→                    }
+  1962→                    className={INPUT_CLASS}
+  1963→                  />
+  1964→                )}
+  1965→              </div>
+  1966→            </div>
+  1967→          )}
+  1968→          <DialogFooter>
+  1969→            <Button variant="ghost" onClick={closeEdit} disabled={editSaving}>
+  1970→              Cancel
+  1971→            </Button>
+  1972→            <Button
+  1973→              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+  1974→              onClick={saveEdit}
+  1975→              disabled={editSaving || editLoading}
+  1976→            >
+  1977→              {editSaving ? (
+  1978→                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  1979→              ) : (
+  1980→                <Save className="h-3.5 w-3.5" />
+  1981→              )}
+  1982→              Save changes
+  1983→            </Button>
+  1984→          </DialogFooter>
+  1985→        </DialogContent>
+  1986→      </Dialog>
+  1987→
+  1988→      {/* View count dialog */}
+  1989→      <Dialog
+  1990→        open={!!viewCountTarget}
+  1991→        onOpenChange={(o) => !o && !viewCountSaving && closeViewCountEdit()}
+  1992→      >
+  1993→        <DialogContent className="surface-2 max-w-sm">
+  1994→          <DialogHeader>
+  1995→            <DialogTitle>Edit view count</DialogTitle>
+  1996→            <DialogDescription>
+  1997→              Set the view count for{' '}
+  1998→              <span className="font-mono text-foreground">
+  1999→                {viewCountTarget?.slug}
+  2000→              </span>
+
+[showing lines 1-2000 of 4551; use offset=2001 with limit to continue reading]

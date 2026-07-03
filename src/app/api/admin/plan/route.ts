@@ -64,7 +64,9 @@ export async function PUT(req: NextRequest) {
       maxStorageBytes: BigInt(Number(body.maxStorageBytes) || 50 * 1024 * 1024),
       maxPasteSize: Number(body.maxPasteSize) || 5 * 1024 * 1024,
       maxPastesPerMonth: Number(body.maxPastesPerMonth) || 50,
-      allowedExpiryPresets: String(body.allowedExpiryPresets || 'never,10m,1h,1d,1w,1M,1y'),
+      allowedExpiryPresets: Array.isArray(body.allowedExpiryPresets)
+        ? (body.allowedExpiryPresets as string[]).join(',')
+        : String(body.allowedExpiryPresets || 'never,10m,1h,1d,1w,1M,1y'),
       allowCustomExpiry: !!body.allowCustomExpiry,
       allowBurnAfterRead: body.allowBurnAfterRead !== false,
       allowPassword: body.allowPassword !== false,
@@ -94,11 +96,16 @@ export async function PATCH(req: NextRequest) {
   const patch: Record<string, unknown> = {}
   const fields = [
     'name', 'description', 'monthlyPrice', 'maxPasteSize', 'maxPastesPerMonth',
-    'allowedExpiryPresets', 'allowCustomExpiry', 'allowBurnAfterRead',
+    'allowCustomExpiry', 'allowBurnAfterRead',
     'allowPassword', 'allowPrivate', 'allowFileUpload', 'isActive', 'sortOrder',
   ]
   for (const f of fields) {
     if (body[f] !== undefined) patch[f] = body[f]
+  }
+  // allowedExpiryPresets: accept array OR string, store as comma-separated string
+  if (body.allowedExpiryPresets !== undefined) {
+    const val = body.allowedExpiryPresets
+    patch.allowedExpiryPresets = Array.isArray(val) ? val.join(',') : String(val)
   }
   if (body.maxStorageBytes !== undefined) patch.maxStorageBytes = BigInt(Number(body.maxStorageBytes))
 

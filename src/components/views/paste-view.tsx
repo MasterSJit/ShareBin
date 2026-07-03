@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { CodeEditor } from '@/components/editor/code-editor'
+import { AdSlot } from '@/components/ad-slot'
 import { PasteCard } from '@/components/paste-card'
 import { FilePreview } from '@/components/file-preview'
 import { api, ApiError, markUnlocked } from '@/lib/api-client'
@@ -448,6 +449,9 @@ export function PasteView({ idOrSlug }: { idOrSlug: string }) {
             </div>
           </Reveal>
 
+          {/* paste-top sponsored slot */}
+          <AdSlot slot="paste-top" className="mb-3" />
+
           {/* Content */}
           {paste.contentType === 'text' ? (
             <Reveal variant={scaleIn} delay={0.1}>
@@ -485,6 +489,9 @@ export function PasteView({ idOrSlug }: { idOrSlug: string }) {
               />
             </Reveal>
           )}
+
+          {/* paste-bottom sponsored slot */}
+          <AdSlot slot="paste-bottom" className="mt-4" />
         </div>
 
         {/* ===== Sidebar ===== */}

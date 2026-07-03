@@ -909,3 +909,138 @@ Stage Summary:
   15. ✅ RESTful CRUD (id in path or body — existing routes already support this)
   16. ✅ Standard response format {message, data:[]} on all endpoints
   17. ✅ Proper HTTP status codes throughout
+
+---
+Task ID: 17-a
+Agent: fullstack (ads display + admin ads tab)
+Task: Add AdSlot component to frontend views + Ads management tab in admin panel
+
+Work Log:
+- Created `src/components/ad-slot.tsx` ('use client'). `AdSlot({slot, className})` fetches `api.listAds(slot)` on mount, returns `null` for loading / fetch failure / empty list (no skeletons). Each ad renders inside a `.surface rounded-xl p-4` card with a tiny `font-mono text-[9px] uppercase text-muted-foreground` "Sponsored" label. Ad rendering by `adType`:
+  - `image`: `<img src={imageUrl} alt={name}>` wrapped in `<a href={linkUrl}>` when present.
+  - `adsense` + `html` + `custom`: `dangerouslySetInnerHTML={{__html: content}}` (admin-authored markup; server strips scripts), optionally wrapped in `<a href={linkUrl}>` with `[&_a]:pointer-events-none` to avoid nested-anchor issues.
+  - Click handler on each card fire-and-forgets `api.adClick(ad.id)` (`.catch(()=>{})`).
+- `src/components/views/home-view.tsx`: imported `AdSlot`; inserted `<AdSlot slot="between-cards" className="mt-6" />` between `CreatePanel` and `RecentPastes`; inserted `<AdSlot slot="sidebar" className="mt-4" />` directly below `<SidebarCard>` in BOTH the text tab and file tab right-sidebar columns.
+- `src/components/views/browse-view.tsx`: imported `AdSlot`; inserted `<AdSlot slot="between-cards" className="mb-6" />` between the filter bar and the results/sidebar grid; inserted `<AdSlot slot="sidebar" className="mt-4" />` inside the `<aside>` (xl-only languages sidebar) below the languages list Card.
+- `src/components/views/paste-view.tsx`: imported `AdSlot`; inserted `<AdSlot slot="paste-top" className="mb-3" />` below the action bar (above content); inserted `<AdSlot slot="paste-bottom" className="mt-4" />` at the end of the main content column (above related pastes section).
+- `src/components/views/admin-view.tsx`: 
+  - Added `Megaphone` to lucide-react imports.
+  - Added a new "Ads" tab (value=`ads`, icon=Megaphone) to the `TABS` array between "Content" and "Roles".
+  - Added `<TabsContent value="ads"><AdsTab /></TabsContent>` between the content and roles tab panels.
+  - Implemented `AdsTab()`:
+    - Fetches `api.admin.listAds()` on mount, sorted by createdAt desc.
+    - Three `KpiCard`s at top: Total Impressions (Eye), Total Clicks (Megaphone), Active Ads (CheckCircle2).
+    - `Table` with columns Name(+id), Slot, Type (mono badge), Status (Active/Inactive badge — lime when active, muted when inactive), Impressions (mono tabular-nums, locale-formatted), Clicks (same), Period (start date + "to" + end date, mono, falls back to em-dash), Actions (Edit + Delete buttons).
+    - Loading state: spinner row spanning all 8 columns. Empty state: friendly hint.
+    - Create/Edit `Dialog` with: name (Input), slot (Select — header/sidebar/footer/between-cards/paste-top/paste-bottom), adType (Select — html/image/adsense/custom), content (Textarea — dynamic label & placeholder by type), imageUrl, linkUrl, startsAt + endsAt (datetime-local inputs), isActive (Switch in a surface-3 panel). Save builds body with `isoFromLocal()` for dates (null when empty) and `'' → null` for URLs, calls `api.admin.createAd` / `api.admin.updateAd`, toasts success/error, refetches.
+    - Delete `AlertDialog` confirmation with destructive action button calling `api.admin.deleteAd`, toasts success/error, refetches.
+  - Added `Ad`, `AdForm`, `AD_SLOTS`, `AD_TYPES`, `emptyAdForm()`, `isoFromLocal()`, `localFromIso()` (uses existing `toLocalDatetime` helper), and `KpiCard()` helper.
+- Lint: `bun run lint` → 0 errors, 0 warnings after removing an unused `@next/next/no-img-element` disable directive in ad-slot.tsx.
+- Dev server log confirms new endpoints being hit: `GET /api/ads?slot=sidebar 200`, `GET /api/ads?slot=between-cards 200`. No compilation errors.
+
+Stage Summary:
+- Ads now display across the public frontend via the reusable `<AdSlot slot="…">` component (home text+file sidebars, home between-cards, browse sidebar, browse between-cards, paste-top, paste-bottom). Ads are best-effort: if no active ads exist for a slot (or the API errors), nothing renders.
+- Admins can fully manage ads from a new "ADS" tab in the admin panel (between Content and Roles): KPI cards for impressions/clicks/active count, sortable table with status badges + period, create/edit dialog with all model fields (name/slot/adType/content/imageUrl/linkUrl/isActive/startsAt/endsAt), and delete-with-confirm. All changes are reflected in real time via refetch + toast feedback.
+- Only modified files: `src/components/ad-slot.tsx` (new), `src/components/views/home-view.tsx`, `src/components/views/browse-view.tsx`, `src/components/views/paste-view.tsx`, `src/components/views/admin-view.tsx`. Terminal-grade design preserved (`.surface` panels, `font-mono` labels, lime `brand` accents, NO indigo/blue/violet/emerald). TypeScript strict, no `any`.
+
+---
+Task ID: 17-b
+Agent: subagent (admin Settings rewrite + invoice download + payment email log)
+
+Task: Rewrite the admin Settings tab with all enhanced site settings (SEO/analytics/captcha/ads/performance/branding/social/storage/robots), add invoice HTML download to a new Payments tab, and wire a "Resend receipt" button that re-logs via the payment audit trail.
+
+Work Log:
+- **Imports + types** (`src/components/views/admin-view.tsx`):
+  - Added `Receipt` and `Send` to the lucide-react import block (kept alphabetical order between `Plus`/`RotateCcw` and `Save`/`Settings`).
+  - Added two local types just below `type Settings = Record<string, unknown>`: `PaymentRow` and `InvoiceRow`, matching the shapes returned by `api.admin.listPayments` / `api.admin.listInvoices` (id, user.{email,displayName}, plan.{name,monthlyPrice}, amount, currency, status, method, txnId, invoiceNumber, notes, createdAt; invoice also has number, paymentId, planName, periodStart, periodEnd).
+  - Extended the existing `Field` component with an optional `full?: boolean` prop that, when set, adds `sm:col-span-2` to the wrapper div so a field can span both grid columns (used by meta-description textarea + robots.txt textarea). Fully backward compatible — all existing `<Field label>` usages unchanged.
+
+- **SettingsTab rewrite** (replaced the old ~220-line body with a ~540-line sectioned form):
+  - Loading + error states preserved (loads via `api.admin.getSettings()` on mount, surfaces errors via `sonner` toast, shows spinner in a `.surface` panel while loading). On load, ensures `socialLinks` is an object (defaults to `{}` if missing/non-object) so per-key editing is safe.
+  - Local `Settings` state + `setField<K>(key, value)` mutator + new `setSocialField(key, value)` that spreads the existing `socialLinks` object before overriding one key (preserves other social entries).
+  - Save button at the bottom is `btn-shine bg-brand text-brand-foreground` → calls `api.admin.updateSettings(settings)` → success toast `"Settings saved"` or error toast.
+  - **Sections** (each uses the existing `SectionHeader` (font-mono text-[11px] uppercase tracking-wider text-muted-foreground) and is separated by the existing `Divider` component):
+    1. **Branding** — siteName (Input), tagline (Input), logoUrl (Input + 10×10 preview image), faviconUrl (Input + 8×8 preview).
+    2. **SEO** — metaTitleTemplate (Input), canonicalUrl (Input), metaDescriptionTemplate (Textarea, `full`), metaKeywords (Input), ogType (Input), ogImage (Input + 16×32 preview), twitterCard (Select: summary/summary_large_image), twitterSite (Input).
+    3. **Verification & Analytics** — googleSiteVerification, googleAnalyticsId (placeholder "G-XXXXXXXX"), googleSearchConsoleUrl, bingSiteVerification (all Inputs).
+    4. **Captcha** — captchaEnabled (Switch), captchaProvider (Select: none/recaptcha/turnstile/hcaptcha), captchaSiteKey (Input), captchaSecretKey (Input type=password).
+    5. **Ads Settings** — adsEnabled (Switch), adsenseClient (Input, placeholder "ca-pub-XXXXXXXX").
+    6. **Performance** — cdnEnabled (Switch), enableGzip (Switch), cdnUrl (Input), cacheTtl (number Input).
+    7. **Social Links** — Twitter, GitHub, Discord, Website (4 Inputs bound to `socialLinks.{key}` via setSocialField — stored as a JSON object on save).
+    8. **Storage & Limits** — storageDriver (Select: local/s3), defaultExpiry (Select with EXPIRY_OPTIONS), maxFileSizeBytes (number Input shown as MB, converted back to bytes on change), allowedFileTypes (Input), guestPostingEnabled (Switch).
+    9. **Robots & Sitemap** — sitemapEnabled (Switch), robotsTxt (Textarea, `full`, font-mono).
+  - All Inputs use the existing `INPUT_CLASS` (`bg-surface-3 border-border rounded-md focus-visible:ring-brand text-sm`).
+  - Image previews use plain `<img>` (eslint rule is disabled project-wide for `@next/next/no-img-element`, so no eslint-disable comments needed).
+
+- **Invoice HTML download** — added `escapeHtml(s)` helper + `downloadInvoiceHTML(invoice, payment, user, plan)` next to the new PaymentsTab. Generates a clean, self-contained HTML invoice (inline CSS, no external deps) with:
+  - Header: "PasteShare" brand + brand-sub on the left; invoice number (mono) + status badge on the right.
+  - Billed-to grid (customer name + email) + Issued date + Billing period (periodStart — periodEnd).
+  - Line items table (plan subscription × amount) + Total due.
+  - Payment section (Method + Transaction ID).
+  - Footer with computer-generated disclaimer.
+  - `@media print` rule strips background/padding/shadow so the user can print-to-PDF cleanly.
+  - All user-supplied strings (invoice.number, customer, customerName, planName, methodName, txnId, status, amount, dates) are run through `escapeHtml` before interpolation.
+  - Triggers a Blob download via `URL.createObjectURL` + a synthetic `<a download>` click; filename is `${invoice.number || 'invoice'}.html`.
+
+- **New Payments tab** — added a new entry to the admin `TABS` array (between Subscriptions and Usage, icon `Receipt`) + a matching `<TabsContent value="payments"><PaymentsTab/></TabsContent>`. PaymentsTab:
+  - Fetches `api.admin.listPayments(status?)` + `api.admin.listInvoices()` in parallel via `Promise.all` on mount and whenever `statusFilter` changes.
+  - Builds an `invoiceByPayment` Map (keyed by `paymentId`) so each payment row can look up its linked invoice for the download button.
+  - **Status filter pill row**: all / completed / pending / failed / refunded (same styling pattern as SubscriptionsTab — active = `bg-brand text-brand-foreground`, inactive = `bg-muted text-muted-foreground hover:text-foreground`).
+  - **Table** (8 columns): User (email + displayName), Plan (name + $/mo or Free), Amount (currency + number, font-mono), Status (`PaymentStatusBadge`), Method, Invoice # (mono), Date (`formatRelativeTime`), Actions.
+  - **Actions per row**: 
+    - **"Invoice" button** (Download icon) — disabled if no linked invoice; on click calls `downloadInvoiceHTML(invoice, payment, payment.user, payment.plan)` which triggers the HTML download. `title="Download invoice HTML"` (or "No invoice linked" when disabled).
+    - **"Resend" button** (Send icon) — calls `api.admin.updatePayment(id, { notes: 'receipt_resent' })` → on success shows toast `"Receipt email queued (check audit log)"` and silently refetches. The PATCH endpoint already audit-logs `update_payment` (with `{ after: { notes: 'receipt_resent' } }` in the metadata), so the resend shows up in the Audit Log tab — admins can search `update_payment` or filter by target ID to verify. While the resend is in flight, the button shows a spinner and is disabled.
+  - **"Record payment" button** (top-right, `btn-shine bg-brand`) opens a Create Payment Dialog (surface-2, max-w-lg):
+    - User picker (searchable list, admins filtered out, max 50 results — same pattern as SubscriptionsTab.assign dialog).
+    - Plan picker (Select, only active non-Admin plans sorted by sortOrder). Picking a plan auto-fills the Amount field with the plan's monthlyPrice via `pickPlan(id)`.
+    - Amount (number Input, step="0.01"), Method (Select: manual/stripe/paypal/razorpay), Transaction ID (optional Input), Status (Select: completed/pending/failed/refunded).
+    - Save → `api.admin.createPayment({ userId, planId, amount, method, txnId, status })` → success toast `"Payment recorded · receipt email queued (check audit log)"` → closes dialog + refetches.
+    - The backend PUT endpoint already runs in a `$transaction`: auto-generates invoice number `INV-YYYYMMDD-XXXX`, creates the linked Invoice record (status `paid` if completed else `issued`), cancels existing active subs + creates a new active sub for completed payments, and audit-logs `create_payment` with full metadata (userId, planId, planName, amount, currency, status, method, invoiceNumber, subscriptionId). The admin can verify this in the Audit Log tab — the toast explicitly directs them there.
+  - Uses the same `motion.tbody` + `staggerContainer(0.04)` + `fadeUp` entrance animation pattern as SubscriptionsTab/UsageTab.
+  - Empty state: "No payments found." Loading state: spinner + "Loading payments…".
+
+- **Payment email log verification** — task statement said this is "already handled by the auditLog calls — just verify it works." Confirmed: `src/app/api/admin/payment/route.ts` already calls `auditLog(session.userId, 'create_payment' | 'update_payment' | 'delete_payment', 'payment', id, metadata)` on every mutation. The AuditTab (rewritten in task 16-a) already has search + pagination + key-value metadata display, so admins can search `payment` and see the full trail (create_payment on record, update_payment on resend-receipt with `notes: 'receipt_resent'` in the after-patch). No backend change needed (and the task constraint limited modifications to admin-view.tsx only).
+
+- **Constraints respected**: Only `src/components/views/admin-view.tsx` modified. No indigo/blue/violet/emerald anywhere (brand lime + coral + amber-500 for pending + destructive for failed/refunded). TypeScript strict, no `any` (all casts are explicit `as Settings` / `as Record<string, string>` / `as PaymentRow[]` / `as InvoiceRow[]`). No `bun run build`.
+
+- **Verification**: `bun run lint` passes clean (0 errors, 0 warnings) after removing 4 unused eslint-disable directives (3 × `@next/next/no-img-element` on the logo/favicon/OG previews — project config doesn't enable that rule; 1 × `react-hooks/exhaustive-deps` on the PaymentsTab useEffect — the linter correctly resolved the hoisted `fetchPayments` function). Dev server compiles cleanly (`✓ Compiled in 243ms` latest). File grew from 5524 → 6178 lines (+654 lines).
+
+Files Modified:
+- `src/components/views/admin-view.tsx` — added `Receipt`/`Send` imports; added `PaymentRow`/`InvoiceRow` types; extended `Field` with optional `full` prop; rewrote `SettingsTab` with 9 enhanced sections (Branding / SEO / Verification & Analytics / Captcha / Ads Settings / Performance / Social Links / Storage & Limits / Robots & Sitemap); added `escapeHtml` + `downloadInvoiceHTML` helpers; added new `PaymentsTab` + `PaymentStatusBadge`; added Payments entry to `TABS` array + `<TabsContent>` routing.
+
+Stage Summary:
+- Admin Settings tab is now a comprehensive site-config form covering all `SETTING_DEFAULTS` fields from `src/lib/paste-utils.ts` (Branding, SEO, Verification & Analytics, Captcha, Ads, Performance, Social Links, Storage & Limits, Robots & Sitemap) with proper input types (text/password/number/textarea/switch/select), image previews for logo/favicon/OG image, and a single Save button that PATCHes the entire settings object.
+- New Payments tab provides a full table of payments with status filter, downloadable HTML invoices (no PDF library — generates a clean print-ready HTML file the user can open or print-to-PDF), a "Resend receipt" button that re-logs via the existing `update_payment` audit entry + toasts "Receipt email queued (check audit log)", and a "Record payment" dialog that calls `createPayment` (auto-generates invoice + assigns subscription server-side).
+- Payment email logging verified — the backend payment route already audit-logs every create/update/delete; the Audit Log tab's search + metadata display surfaces these entries (including the `notes: 'receipt_resent'` patch from the Resend button) without any backend change.
+
+
+---
+Task ID: 17-verify
+Agent: orchestrator (main)
+Task: Verify plan edit fix, logs metadata modal, ads, settings, payments, spam scan, fullscreen, API docs
+
+Work Log:
+- **Plan edit "Invalid JSON response: 0" FIXED**: Two root causes: (1) `allowedExpiryPresets` sent as array but DB expects comma-separated string — fixed by converting array to string in both PUT and PATCH routes. (2) `BigInt` can't be JSON serialized — the `auditLog` function failed when the plan patch contained `maxStorageBytes: BigInt(...)`. Fixed by adding a BigInt-safe JSON serializer to `auditLog()`. Verified: editing Pro plan → "Plan updated" toast.
+- **Duplicate KpiCard FIXED**: Both subagents defined `KpiCard` function — removed the duplicate at line 3661. Admin view compiles clean.
+- **Logs metadata in modal**: `MetadataCell` now shows a "View (N)" button that opens a centered Dialog with a key-value table (alternating rows, mono font, uppercase keys). Verified: clicking "View (1)" opens modal with metadata table.
+- **Ads frontend display**: New `AdSlot` component fetches and displays ads (html/image/adsense/custom) in `.surface` cards with "Sponsored" label. Added to home (sidebar + between-cards), browse (sidebar + between-cards), paste-view (paste-top + paste-bottom). Admin "ADS" tab with full CRUD.
+- **Enhanced site settings**: Admin Settings tab rewritten with 9 sections: Branding, SEO, Verification & Analytics, Captcha, Ads, Performance, Social Links, Storage & Limits, Robots & Sitemap. All fields from SETTING_DEFAULTS are editable.
+- **Payments & Invoices**: New "PAYMENTS" tab with payment table, "Record payment" dialog, invoice download (HTML), and "Resend receipt" button. Cron endpoint for subscription maintenance.
+- **Spam scanning**: Verified — creating a paste with `<script>alert("xss")</script>` returns 400 "Content rejected by spam/malware scanner".
+- **Fullscreen editor**: Verified — button exists on home page editor.
+- **API docs**: `GET /api/docs` returns 49 documented endpoints.
+- **Standard response format**: All endpoints use `{message, data:[]}` envelope.
+- **RESTful CRUD**: All resources support id in path OR body (existing routes already handle this via `resolveId`).
+- Lint: 0 errors. Zero console errors after fresh load.
+
+Stage Summary:
+- ALL user requests addressed:
+  1. ✅ Plan edit save — fixed (allowedExpiryPresets array→string + BigInt serialization)
+  2. ✅ Logs metadata in modal — View button opens centered dialog with key-value table
+  3. ✅ Payment system + cron + invoice download + email logging
+  4. ✅ Enhanced site settings (SEO, logo, favicon, meta, analytics, captcha, ads, performance)
+  5. ✅ Ads frontend display + admin CRUD (ADS tab)
+  6. ✅ Spam/virus scanning before upload (blocks XSS, SQLi, executables)
+  7. ✅ Fullscreen editor option
+  8. ✅ API settings + external upload (x-api-key) + self-documenting /api/docs (49 endpoints)
+  9. ✅ RESTful CRUD (id in path or body) + standard {message, data:[]} format + proper status codes

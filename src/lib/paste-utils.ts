@@ -86,13 +86,19 @@ export async function auditLog(
   targetId: string,
   metadata?: Record<string, unknown>
 ) {
+  // BigInt-safe JSON serialization
+  const safeStringify = (obj: unknown) => {
+    return JSON.stringify(obj, (_key, value) =>
+      typeof value === 'bigint' ? value.toString() : value
+    )
+  }
   await db.auditLog.create({
     data: {
       adminId,
       action,
       targetType,
       targetId,
-      metadata: metadata ? JSON.stringify(metadata) : null,
+      metadata: metadata ? safeStringify(metadata) : null,
     },
   })
 }

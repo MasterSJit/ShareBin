@@ -73,19 +73,23 @@ import {
   Database,
   Download,
   Eye,
+  FileJson,
   FileText,
   Flag,
   Flame,
   HardDrive,
   Loader2,
   Lock,
+  Megaphone,
   MoreHorizontal,
   Pause,
   Pencil,
   Plus,
+  Receipt,
   RotateCcw,
   Save,
   Search,
+  Send,
   Settings as SettingsIcon,
   Shield,
   ShieldAlert,
@@ -395,6 +399,11 @@ function AdminInner() {
       icon: <FileText className="h-3.5 w-3.5" />,
     },
     {
+      value: 'ads',
+      label: 'Ads',
+      icon: <Megaphone className="h-3.5 w-3.5" />,
+    },
+    {
       value: 'roles',
       label: 'Roles',
       icon: <Shield className="h-3.5 w-3.5" />,
@@ -408,6 +417,11 @@ function AdminInner() {
       value: 'subscriptions',
       label: 'Subscriptions',
       icon: <CalendarPlus className="h-3.5 w-3.5" />,
+    },
+    {
+      value: 'payments',
+      label: 'Payments',
+      icon: <Receipt className="h-3.5 w-3.5" />,
     },
     {
       value: 'usage',
@@ -473,6 +487,9 @@ function AdminInner() {
           <TabsContent value="content" className="mt-0">
             <ContentTab />
           </TabsContent>
+          <TabsContent value="ads" className="mt-0">
+            <AdsTab />
+          </TabsContent>
           <TabsContent value="roles" className="mt-0">
             <RolesTab />
           </TabsContent>
@@ -481,6 +498,9 @@ function AdminInner() {
           </TabsContent>
           <TabsContent value="subscriptions" className="mt-0">
             <SubscriptionsTab />
+          </TabsContent>
+          <TabsContent value="payments" className="mt-0">
+            <PaymentsTab />
           </TabsContent>
           <TabsContent value="usage" className="mt-0">
             <UsageTab />
@@ -2043,6 +2063,37 @@ function ContentTab() {
 
 type Settings = Record<string, unknown>
 
+type PaymentRow = {
+  id: string
+  userId: string
+  user: { email: string; displayName: string | null } | null
+  planId: string
+  plan: { name: string; monthlyPrice: number } | null
+  amount: number
+  currency: string
+  status: string
+  method: string
+  txnId: string | null
+  invoiceNumber: string | null
+  notes: string | null
+  createdAt: string
+}
+
+type InvoiceRow = {
+  id: string
+  number: string
+  paymentId: string
+  userId: string
+  user: { email: string; displayName: string | null } | null
+  amount: number
+  currency: string
+  planName: string
+  periodStart: string
+  periodEnd: string | null
+  status: string
+  createdAt: string
+}
+
 function SettingsTab() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [saving, setSaving] = useState(false)
@@ -2053,7 +2104,13 @@ function SettingsTab() {
     api.admin
       .getSettings()
       .then((rows) => {
-        if (active && rows[0]) setSettings(rows[0] as Settings)
+        if (!active) return
+        const s = (rows[0] as Settings | undefined) ?? ({} as Settings)
+        // Ensure socialLinks is an object so we can edit keys safely.
+        if (!s.socialLinks || typeof s.socialLinks !== 'object') {
+          s.socialLinks = {}
+        }
+        setSettings(s)
       })
       .catch((err) => {
         toast.error(err instanceof ApiError ? err.message : 'Failed to load settings.')
@@ -2070,16 +2127,22 @@ function SettingsTab() {
     setSettings((cur) => (cur ? { ...cur, [key]: value } : cur))
   }
 
+  function setSocialField(key: string, value: string) {
+    setSettings((cur) => {
+      if (!cur) return cur
+      const existing =
+        cur.socialLinks && typeof cur.socialLinks === 'object'
+          ? (cur.socialLinks as Record<string, string>)
+          : {}
+      return { ...cur, socialLinks: { ...existing, [key]: value } }
+    })
+  }
+
   async function save() {
     if (!settings) return
     setSaving(true)
     try {
-      const patch: Record<string, unknown> = { ...settings }
-      // maxFileSizeBytes stored as bytes; UI shows MB.
-      if (typeof settings.maxFileSizeBytes === 'number') {
-        patch.maxFileSizeBytes = settings.maxFileSizeBytes
-      }
-      await api.admin.updateSettings(patch)
+      await api.admin.updateSettings(settings as Record<string, unknown>)
       toast.success('Settings saved')
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Save failed.')
@@ -2098,14 +2161,19 @@ function SettingsTab() {
 
   const maxFileSizeMB =
     typeof settings.maxFileSizeBytes === 'number'
-      ? Math.max(1, Math.round(settings.maxFileSizeBytes / (1024 * 1024)))
+      ? Math.max(1, Math.round((settings.maxFileSizeBytes as number) / (1024 * 1024)))
       : 10
+
+  const socialLinks =
+    settings.socialLinks && typeof settings.socialLinks === 'object'
+      ? (settings.socialLinks as Record<string, string>)
+      : {}
 
   return (
     <Reveal variant={fadeUp}>
       <div className="surface rounded-2xl p-6">
-        {/* General */}
-        <SectionHeader>General</SectionHeader>
+        {/* Branding */}
+        <SectionHeader>Branding</SectionHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Site name">
             <Input
@@ -2123,13 +2191,350 @@ function SettingsTab() {
               placeholder="Share code & files, beautifully."
             />
           </Field>
+          <Field label="Logo URL">
+            <Input
+              value={String(settings.logoUrl ?? '')}
+              onChange={(e) => setField('logoUrl', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="/logo.svg"
+            />
+            {settings.logoUrl ? (
+              <img
+                src={String(settings.logoUrl)}
+                alt="Logo preview"
+                className="mt-2 h-10 w-10 rounded-md border border-border bg-surface-3 object-contain p-1"
+              />
+            ) : null}
+          </Field>
+          <Field label="Favicon URL">
+            <Input
+              value={String(settings.faviconUrl ?? '')}
+              onChange={(e) => setField('faviconUrl', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="/favicon.ico"
+            />
+            {settings.faviconUrl ? (
+              <img
+                src={String(settings.faviconUrl)}
+                alt="Favicon preview"
+                className="mt-2 h-8 w-8 rounded border border-border bg-surface-3 object-contain p-1"
+              />
+            ) : null}
+          </Field>
         </div>
 
         <Divider />
 
-        {/* Limits */}
-        <SectionHeader>Limits</SectionHeader>
+        {/* SEO */}
+        <SectionHeader>SEO</SectionHeader>
         <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Meta title template">
+            <Input
+              value={String(settings.metaTitleTemplate ?? '')}
+              onChange={(e) => setField('metaTitleTemplate', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="{title} — PasteShare"
+            />
+          </Field>
+          <Field label="Canonical URL">
+            <Input
+              value={String(settings.canonicalUrl ?? '')}
+              onChange={(e) => setField('canonicalUrl', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="https://example.com"
+            />
+          </Field>
+          <Field label="Meta description template" full>
+            <Textarea
+              value={String(settings.metaDescriptionTemplate ?? '')}
+              onChange={(e) => setField('metaDescriptionTemplate', e.target.value)}
+              className={`${INPUT_CLASS} min-h-[60px]`}
+              placeholder="A code & file sharing platform."
+            />
+          </Field>
+          <Field label="Meta keywords">
+            <Input
+              value={String(settings.metaKeywords ?? '')}
+              onChange={(e) => setField('metaKeywords', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="pastebin, code share, syntax highlighting"
+            />
+          </Field>
+          <Field label="OG type">
+            <Input
+              value={String(settings.ogType ?? '')}
+              onChange={(e) => setField('ogType', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="website"
+            />
+          </Field>
+          <Field label="OG image URL">
+            <Input
+              value={String(settings.ogImage ?? '')}
+              onChange={(e) => setField('ogImage', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="https://example.com/og.png"
+            />
+            {settings.ogImage ? (
+              <img
+                src={String(settings.ogImage)}
+                alt="OG preview"
+                className="mt-2 h-16 w-32 rounded border border-border bg-surface-3 object-cover"
+              />
+            ) : null}
+          </Field>
+          <Field label="Twitter card">
+            <Select
+              value={String(settings.twitterCard ?? 'summary')}
+              onValueChange={(v) => setField('twitterCard', v)}
+            >
+              <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="summary">summary</SelectItem>
+                <SelectItem value="summary_large_image">
+                  summary_large_image
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Twitter site (@username)">
+            <Input
+              value={String(settings.twitterSite ?? '')}
+              onChange={(e) => setField('twitterSite', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="@PasteShare"
+            />
+          </Field>
+        </div>
+
+        <Divider />
+
+        {/* Verification & Analytics */}
+        <SectionHeader>Verification &amp; Analytics</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Google site verification">
+            <Input
+              value={String(settings.googleSiteVerification ?? '')}
+              onChange={(e) => setField('googleSiteVerification', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="meta tag content"
+            />
+          </Field>
+          <Field label="Google Analytics ID">
+            <Input
+              value={String(settings.googleAnalyticsId ?? '')}
+              onChange={(e) => setField('googleAnalyticsId', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="G-XXXXXXXX"
+            />
+          </Field>
+          <Field label="Google Search Console URL">
+            <Input
+              value={String(settings.googleSearchConsoleUrl ?? '')}
+              onChange={(e) => setField('googleSearchConsoleUrl', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="https://search.google.com/…"
+            />
+          </Field>
+          <Field label="Bing site verification">
+            <Input
+              value={String(settings.bingSiteVerification ?? '')}
+              onChange={(e) => setField('bingSiteVerification', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="meta tag content"
+            />
+          </Field>
+        </div>
+
+        <Divider />
+
+        {/* Captcha */}
+        <SectionHeader>Captcha</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Captcha enabled">
+            <div className="flex items-center gap-2 pt-1.5">
+              <Switch
+                checked={Boolean(settings.captchaEnabled)}
+                onCheckedChange={(c) => setField('captchaEnabled', c)}
+              />
+              <span className="text-xs text-muted-foreground">
+                Require captcha on public forms
+              </span>
+            </div>
+          </Field>
+          <Field label="Captcha provider">
+            <Select
+              value={String(settings.captchaProvider ?? 'none')}
+              onValueChange={(v) => setField('captchaProvider', v)}
+            >
+              <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">none</SelectItem>
+                <SelectItem value="recaptcha">reCAPTCHA</SelectItem>
+                <SelectItem value="turnstile">Turnstile</SelectItem>
+                <SelectItem value="hcaptcha">hCaptcha</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Site key">
+            <Input
+              value={String(settings.captchaSiteKey ?? '')}
+              onChange={(e) => setField('captchaSiteKey', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="public site key"
+            />
+          </Field>
+          <Field label="Secret key">
+            <Input
+              type="password"
+              value={String(settings.captchaSecretKey ?? '')}
+              onChange={(e) => setField('captchaSecretKey', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="secret key"
+            />
+          </Field>
+        </div>
+
+        <Divider />
+
+        {/* Ads Settings */}
+        <SectionHeader>Ads Settings</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Ads enabled">
+            <div className="flex items-center gap-2 pt-1.5">
+              <Switch
+                checked={Boolean(settings.adsEnabled)}
+                onCheckedChange={(c) => setField('adsEnabled', c)}
+              />
+              <span className="text-xs text-muted-foreground">
+                Serve ads on public pages
+              </span>
+            </div>
+          </Field>
+          <Field label="AdSense client">
+            <Input
+              value={String(settings.adsenseClient ?? '')}
+              onChange={(e) => setField('adsenseClient', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="ca-pub-XXXXXXXX"
+            />
+          </Field>
+        </div>
+
+        <Divider />
+
+        {/* Performance */}
+        <SectionHeader>Performance</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="CDN enabled">
+            <div className="flex items-center gap-2 pt-1.5">
+              <Switch
+                checked={Boolean(settings.cdnEnabled)}
+                onCheckedChange={(c) => setField('cdnEnabled', c)}
+              />
+              <span className="text-xs text-muted-foreground">
+                Serve static assets from CDN
+              </span>
+            </div>
+          </Field>
+          <Field label="Gzip enabled">
+            <div className="flex items-center gap-2 pt-1.5">
+              <Switch
+                checked={Boolean(settings.enableGzip)}
+                onCheckedChange={(c) => setField('enableGzip', c)}
+              />
+              <span className="text-xs text-muted-foreground">
+                Compress responses
+              </span>
+            </div>
+          </Field>
+          <Field label="CDN URL">
+            <Input
+              value={String(settings.cdnUrl ?? '')}
+              onChange={(e) => setField('cdnUrl', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="https://cdn.example.com"
+            />
+          </Field>
+          <Field label="Cache TTL (seconds)">
+            <Input
+              type="number"
+              min={0}
+              value={
+                typeof settings.cacheTtl === 'number'
+                  ? Number(settings.cacheTtl)
+                  : 3600
+              }
+              onChange={(e) =>
+                setField('cacheTtl', Number(e.target.value || 0))
+              }
+              className={INPUT_CLASS}
+            />
+          </Field>
+        </div>
+
+        <Divider />
+
+        {/* Social Links */}
+        <SectionHeader>Social Links</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Twitter">
+            <Input
+              value={String(socialLinks.twitter ?? '')}
+              onChange={(e) => setSocialField('twitter', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="https://twitter.com/PasteShare"
+            />
+          </Field>
+          <Field label="GitHub">
+            <Input
+              value={String(socialLinks.github ?? '')}
+              onChange={(e) => setSocialField('github', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="https://github.com/PasteShare"
+            />
+          </Field>
+          <Field label="Discord">
+            <Input
+              value={String(socialLinks.discord ?? '')}
+              onChange={(e) => setSocialField('discord', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="https://discord.gg/…"
+            />
+          </Field>
+          <Field label="Website">
+            <Input
+              value={String(socialLinks.website ?? '')}
+              onChange={(e) => setSocialField('website', e.target.value)}
+              className={INPUT_CLASS}
+              placeholder="https://pasteshare.app"
+            />
+          </Field>
+        </div>
+
+        <Divider />
+
+        {/* Storage & Limits */}
+        <SectionHeader>Storage &amp; Limits</SectionHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Storage driver">
+            <Select
+              value={String(settings.storageDriver ?? 'local')}
+              onValueChange={(v) => setField('storageDriver', v)}
+            >
+              <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">Local filesystem</SelectItem>
+                <SelectItem value="s3">S3-compatible</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
           <Field label="Default expiry">
             <Select
               value={String(settings.defaultExpiry ?? 'never')}
@@ -2184,24 +2589,10 @@ function SettingsTab() {
 
         <Divider />
 
-        {/* Storage */}
-        <SectionHeader>Storage</SectionHeader>
+        {/* Robots & Sitemap */}
+        <SectionHeader>Robots &amp; Sitemap</SectionHeader>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Storage driver">
-            <Select
-              value={String(settings.storageDriver ?? 'local')}
-              onValueChange={(v) => setField('storageDriver', v)}
-            >
-              <SelectTrigger className={`${INPUT_CLASS} w-full`}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local">Local filesystem</SelectItem>
-                <SelectItem value="s3">S3-compatible</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Sitemap">
+          <Field label="Sitemap enabled">
             <div className="flex items-center gap-2 pt-1.5">
               <Switch
                 checked={Boolean(settings.sitemapEnabled)}
@@ -2212,30 +2603,7 @@ function SettingsTab() {
               </span>
             </div>
           </Field>
-        </div>
-
-        <Divider />
-
-        {/* SEO */}
-        <SectionHeader>SEO</SectionHeader>
-        <div className="space-y-4">
-          <Field label="Meta title template">
-            <Input
-              value={String(settings.metaTitleTemplate ?? '')}
-              onChange={(e) => setField('metaTitleTemplate', e.target.value)}
-              className={INPUT_CLASS}
-              placeholder="%s — PasteShare"
-            />
-          </Field>
-          <Field label="Meta description template">
-            <Input
-              value={String(settings.metaDescriptionTemplate ?? '')}
-              onChange={(e) => setField('metaDescriptionTemplate', e.target.value)}
-              className={INPUT_CLASS}
-              placeholder="A code & file sharing platform."
-            />
-          </Field>
-          <Field label="robots.txt">
+          <Field label="robots.txt" full>
             <Textarea
               value={String(settings.robotsTxt ?? '')}
               onChange={(e) => setField('robotsTxt', e.target.value)}
@@ -2279,12 +2647,14 @@ function Divider() {
 function Field({
   label,
   children,
+  full,
 }: {
   label: string
   children: ReactNode
+  full?: boolean
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className={`space-y-1.5 ${full ? 'sm:col-span-2' : ''}`}>
       <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
         {label}
       </Label>
@@ -2631,6 +3001,7 @@ function ActionBadge({ action }: { action: string }) {
 }
 
 function MetadataCell({ data }: { data: unknown }) {
+  const [open, setOpen] = useState(false)
   const entries = useMemo<[string, string][]>(() => {
     if (data === null || data === undefined) return []
     if (typeof data === 'string') {
@@ -2669,16 +3040,620 @@ function MetadataCell({ data }: { data: unknown }) {
     return <span className="text-[11px] text-muted-foreground">—</span>
 
   return (
-    <div className="space-y-0.5">
-      {entries.map(([k, v]) => (
-        <div
-          key={k}
-          className="font-mono text-[10px] leading-tight break-all"
-        >
-          <span className="text-muted-foreground">{k}:</span>{' '}
-          <span className="text-foreground">{v}</span>
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+        className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+      >
+        <Eye className="h-3 w-3" /> View ({entries.length})
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="surface-2 max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <FileJson className="h-4 w-4 text-brand" /> Metadata
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-hidden rounded-lg border border-border">
+            <table className="w-full">
+              <tbody>
+                {entries.map(([k, v], i) => (
+                  <tr key={k} className={i % 2 === 0 ? 'bg-surface-3/50' : ''}>
+                    <td className="border-b border-border px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground align-top whitespace-nowrap">
+                      {k}
+                    </td>
+                    <td className="border-b border-border px-3 py-2 font-mono text-xs text-foreground break-all">
+                      {v}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+/* ---------------- Ads ---------------- */
+
+type Ad = {
+  id: string
+  name: string
+  slot: string
+  adType: string
+  content: string
+  imageUrl: string | null
+  linkUrl: string | null
+  isActive: boolean
+  impressions: number
+  clicks: number
+  startsAt: string | null
+  endsAt: string | null
+  createdAt: string
+}
+
+type AdForm = {
+  name: string
+  slot: string
+  adType: string
+  content: string
+  imageUrl: string
+  linkUrl: string
+  isActive: boolean
+  startsAt: string
+  endsAt: string
+}
+
+const AD_SLOTS: { value: string; label: string }[] = [
+  { value: 'header', label: 'Header' },
+  { value: 'sidebar', label: 'Sidebar' },
+  { value: 'footer', label: 'Footer' },
+  { value: 'between-cards', label: 'Between Cards' },
+  { value: 'paste-top', label: 'Paste Top' },
+  { value: 'paste-bottom', label: 'Paste Bottom' },
+]
+
+const AD_TYPES: { value: string; label: string }[] = [
+  { value: 'html', label: 'HTML' },
+  { value: 'image', label: 'Image' },
+  { value: 'adsense', label: 'AdSense' },
+  { value: 'custom', label: 'Custom' },
+]
+
+function emptyAdForm(): AdForm {
+  return {
+    name: '',
+    slot: 'sidebar',
+    adType: 'html',
+    content: '',
+    imageUrl: '',
+    linkUrl: '',
+    isActive: true,
+    startsAt: '',
+    endsAt: '',
+  }
+}
+
+function isoFromLocal(v: string): string | null {
+  if (!v) return null
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString()
+}
+
+function localFromIso(v: string | null): string {
+  if (!v) return ''
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return ''
+  return toLocalDatetime(d)
+}
+
+function AdsTab() {
+  const [rows, setRows] = useState<Ad[]>([])
+  const [loading, setLoading] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editing, setEditing] = useState<Ad | null>(null)
+  const [form, setForm] = useState<AdForm>(emptyAdForm())
+  const [busy, setBusy] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<Ad | null>(null)
+
+  async function fetchAds() {
+    setLoading(true)
+    try {
+      const r = await api.admin.listAds()
+      setRows(
+        [...r].sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        ),
+      )
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to load ads.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchAds()
+  }, [])
+
+  function openCreate() {
+    setEditing(null)
+    setForm(emptyAdForm())
+    setDialogOpen(true)
+  }
+
+  function openEdit(ad: Ad) {
+    setEditing(ad)
+    setForm({
+      name: ad.name,
+      slot: ad.slot,
+      adType: ad.adType,
+      content: ad.content,
+      imageUrl: ad.imageUrl || '',
+      linkUrl: ad.linkUrl || '',
+      isActive: ad.isActive,
+      startsAt: localFromIso(ad.startsAt),
+      endsAt: localFromIso(ad.endsAt),
+    })
+    setDialogOpen(true)
+  }
+
+  async function save() {
+    if (!form.name.trim()) {
+      toast.error('Name is required.')
+      return
+    }
+    setBusy(true)
+    try {
+      const body = {
+        name: form.name.trim(),
+        slot: form.slot,
+        adType: form.adType,
+        content: form.content,
+        imageUrl: form.imageUrl.trim() || null,
+        linkUrl: form.linkUrl.trim() || null,
+        isActive: form.isActive,
+        startsAt: isoFromLocal(form.startsAt),
+        endsAt: isoFromLocal(form.endsAt),
+      }
+      if (editing) {
+        await api.admin.updateAd(editing.id, body)
+        toast.success('Ad updated')
+      } else {
+        await api.admin.createAd(body)
+        toast.success('Ad created')
+      }
+      setDialogOpen(false)
+      fetchAds()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Save failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function doDelete() {
+    if (!deleteTarget) return
+    setBusy(true)
+    try {
+      await api.admin.deleteAd(deleteTarget.id)
+      toast.success('Ad deleted')
+      setDeleteTarget(null)
+      fetchAds()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const totalImpressions = rows.reduce((s, r) => s + r.impressions, 0)
+  const totalClicks = rows.reduce((s, r) => s + r.clicks, 0)
+  const activeCount = rows.filter((r) => r.isActive).length
+
+  return (
+    <div className="space-y-4">
+      <Reveal variant={fadeUp}>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="font-mono text-xs text-brand">
+              <span className="text-muted-foreground">{'>'}</span> sudo ads
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+              Advertising
+            </h2>
+          </div>
+          <Button
+            onClick={openCreate}
+            className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            size="sm"
+          >
+            <Plus className="h-3.5 w-3.5" /> Create Ad
+          </Button>
         </div>
-      ))}
+      </Reveal>
+
+      {/* KPI cards */}
+      <Reveal variant={fadeUp} delay={0.05}>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <KpiCard
+            label="Total Impressions"
+            value={totalImpressions}
+            icon={<Eye className="h-4 w-4" />}
+          />
+          <KpiCard
+            label="Total Clicks"
+            value={totalClicks}
+            icon={<Megaphone className="h-4 w-4" />}
+          />
+          <KpiCard
+            label="Active Ads"
+            value={activeCount}
+            icon={<CheckCircle2 className="h-4 w-4" />}
+          />
+        </div>
+      </Reveal>
+
+      {/* Table */}
+      <Reveal variant={fadeUp} delay={0.1}>
+        <div className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}>
+          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Name
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Slot
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Type
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Status
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Impr.
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Clicks
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Period
+                  </TableHead>
+                  <TableHead className="px-4" />
+                </TableRow>
+              </TableHeader>
+              <motion.tbody
+                variants={staggerContainer(0.04)}
+                initial="hidden"
+                animate="show"
+              >
+                {loading ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={8}
+                      className="px-4 py-12 text-center text-sm text-muted-foreground"
+                    >
+                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+                      Loading ads…
+                    </TableCell>
+                  </TableRow>
+                ) : rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={8}
+                      className="px-4 py-12 text-center text-sm text-muted-foreground"
+                    >
+                      No ads configured. Click &ldquo;Create Ad&rdquo; to add
+                      one.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rows.map((ad) => (
+                    <motion.tr
+                      key={ad.id}
+                      variants={fadeUp}
+                      className="border-border border-b transition-colors hover:bg-surface-3"
+                    >
+                      <TableCell className="px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {ad.name}
+                          </p>
+                          <p className="truncate font-mono text-[10px] text-muted-foreground">
+                            {ad.id.slice(0, 8)}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <span className="font-mono text-xs text-foreground">
+                          {ad.slot}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <span className="font-mono rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                          {ad.adType}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            ad.isActive
+                              ? 'bg-brand/15 text-brand'
+                              : 'bg-muted text-muted-foreground'
+                          }`}
+                        >
+                          {ad.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <span className="font-mono text-xs tabular-nums">
+                          {ad.impressions.toLocaleString()}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <span className="font-mono text-xs tabular-nums">
+                          {ad.clicks.toLocaleString()}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <div className="font-mono text-[10px] leading-tight text-muted-foreground">
+                          <div>
+                            {ad.startsAt
+                              ? formatDate(ad.startsAt)
+                              : '\u2014'}
+                          </div>
+                          <div className="text-muted-foreground/60">
+                            to {ad.endsAt ? formatDate(ad.endsAt) : '\u2014'}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-[11px]"
+                            onClick={() => openEdit(ad)}
+                          >
+                            <Pencil className="h-3 w-3" /> Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-[11px] text-destructive hover:text-destructive"
+                            onClick={() => setDeleteTarget(ad)}
+                          >
+                            <Trash2 className="h-3 w-3" /> Delete
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </motion.tr>
+                  ))
+                )}
+              </motion.tbody>
+            </Table>
+          </div>
+        </div>
+      </Reveal>
+
+      {/* Create / Edit dialog */}
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(o) => !busy && setDialogOpen(o)}
+      >
+        <DialogContent className="surface-2 max-h-[85vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editing ? 'Edit ad' : 'Create ad'}</DialogTitle>
+            <DialogDescription>
+              {editing
+                ? `Update ${editing.name}`
+                : 'Configure a new sponsored slot.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Field label="Name">
+              <Input
+                value={form.name}
+                onChange={(e) =>
+                  setForm((cur) => ({ ...cur, name: e.target.value }))
+                }
+                className={INPUT_CLASS}
+                placeholder="Summer sale banner"
+              />
+            </Field>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Slot">
+                <Select
+                  value={form.slot}
+                  onValueChange={(v) =>
+                    setForm((cur) => ({ ...cur, slot: v }))
+                  }
+                >
+                  <SelectTrigger className={INPUT_CLASS}>
+                    <SelectValue placeholder="Slot" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AD_SLOTS.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Ad type">
+                <Select
+                  value={form.adType}
+                  onValueChange={(v) =>
+                    setForm((cur) => ({ ...cur, adType: v }))
+                  }
+                >
+                  <SelectTrigger className={INPUT_CLASS}>
+                    <SelectValue placeholder="Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AD_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+
+            <Field
+              label={
+                form.adType === 'image'
+                  ? 'Content (ignored for image type)'
+                  : form.adType === 'adsense'
+                    ? 'AdSense code (ins + script)'
+                    : 'Content (HTML markup)'
+              }
+            >
+              <Textarea
+                value={form.content}
+                onChange={(e) =>
+                  setForm((cur) => ({ ...cur, content: e.target.value }))
+                }
+                rows={6}
+                className={`${INPUT_CLASS} font-mono text-xs`}
+                placeholder={
+                  form.adType === 'adsense'
+                    ? '<ins class="adsbygoogle" …></ins>\n<script>(adsbygoogle = window.adsbygoogle || []).push({})</script>'
+                    : '<div class="banner">…</div>'
+                }
+              />
+            </Field>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Image URL">
+                <Input
+                  value={form.imageUrl}
+                  onChange={(e) =>
+                    setForm((cur) => ({ ...cur, imageUrl: e.target.value }))
+                  }
+                  className={`${INPUT_CLASS} font-mono text-xs`}
+                  placeholder="https://…/banner.png"
+                />
+              </Field>
+              <Field label="Link URL">
+                <Input
+                  value={form.linkUrl}
+                  onChange={(e) =>
+                    setForm((cur) => ({ ...cur, linkUrl: e.target.value }))
+                  }
+                  className={`${INPUT_CLASS} font-mono text-xs`}
+                  placeholder="https://advertiser.example"
+                />
+              </Field>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Starts at">
+                <Input
+                  type="datetime-local"
+                  value={form.startsAt}
+                  onChange={(e) =>
+                    setForm((cur) => ({ ...cur, startsAt: e.target.value }))
+                  }
+                  className={`${INPUT_CLASS} font-mono text-xs`}
+                />
+              </Field>
+              <Field label="Ends at">
+                <Input
+                  type="datetime-local"
+                  value={form.endsAt}
+                  onChange={(e) =>
+                    setForm((cur) => ({ ...cur, endsAt: e.target.value }))
+                  }
+                  className={`${INPUT_CLASS} font-mono text-xs`}
+                />
+              </Field>
+            </div>
+
+            <label className="surface-3 flex items-center justify-between gap-2 rounded-md p-3 text-xs">
+              <span className="text-muted-foreground">Active</span>
+              <Switch
+                checked={form.isActive}
+                onCheckedChange={(v) =>
+                  setForm((cur) => ({ ...cur, isActive: v }))
+                }
+              />
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDialogOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={save}
+              disabled={busy}
+              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              {editing ? 'Save changes' : 'Create ad'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm */}
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && !busy && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete ad?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete{' '}
+              <span className="font-mono text-foreground">
+                {deleteTarget?.name}
+              </span>
+              . Impression and click statistics will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={doDelete}
+              disabled={busy}
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -4256,6 +5231,664 @@ function SubStatusBadge({ status }: { status: string }) {
   if (s === 'expired')
     return (
       <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+        {status}
+      </span>
+    )
+  return (
+    <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      {status}
+    </span>
+  )
+}
+
+/* ---------------- Payments ---------------- */
+
+/** Escape a user-supplied string for safe interpolation into HTML. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
+ * Generate a clean HTML invoice from a payment + invoice record and trigger
+ * a browser download as a `.html` file. The user can open it in any browser
+ * and print it to PDF if needed (no PDF library required on the client).
+ */
+function downloadInvoiceHTML(
+  invoice: InvoiceRow,
+  payment: PaymentRow | undefined,
+  user: { email: string; displayName: string | null } | null,
+  plan: { name: string; monthlyPrice: number } | null,
+) {
+  const issued = new Date(invoice.createdAt).toLocaleString()
+  const periodStart = new Date(invoice.periodStart).toLocaleDateString()
+  const periodEnd = invoice.periodEnd
+    ? new Date(invoice.periodEnd).toLocaleDateString()
+    : '—'
+  const amountStr = `${invoice.currency} ${(invoice.amount ?? 0).toFixed(2)}`
+  const customer = user?.email || '—'
+  const customerName = user?.displayName || '—'
+  const planName = plan?.name || invoice.planName || '—'
+  const methodName = payment?.method || '—'
+  const txnId = payment?.txnId || '—'
+  const status = invoice.status || '—'
+
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoice ${escapeHtml(invoice.number)}</title>
+<style>
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#18181b;background:#f4f4f5;margin:0;padding:32px;}
+  .invoice{max-width:720px;margin:0 auto;background:#fff;padding:40px;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.06);}
+  .head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:2px solid #18181b;}
+  .brand{font-size:22px;font-weight:700;letter-spacing:-.01em;}
+  .brand-sub{font-size:10px;color:#71717a;text-transform:uppercase;letter-spacing:.1em;margin-top:4px;}
+  .label{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#71717a;margin-bottom:4px;}
+  .value{font-size:14px;color:#18181b;}
+  .mono{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:13px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
+  .section{margin-bottom:28px;}
+  .section-title{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#71717a;margin-bottom:12px;}
+  table{width:100%;border-collapse:collapse;}
+  th,td{text-align:left;padding:12px 0;border-bottom:1px solid #e4e4e7;font-size:14px;}
+  th{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#71717a;font-weight:600;}
+  td.amount,th.amount{text-align:right;font-family:"SFMono-Regular",Menlo,Consolas,monospace;}
+  .total{display:flex;justify-content:space-between;align-items:center;padding:14px 0 4px;border-top:2px solid #18181b;margin-top:8px;}
+  .total-label{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:#71717a;}
+  .total-amount{font-size:22px;font-weight:700;font-family:"SFMono-Regular",Menlo,Consolas,monospace;}
+  .badge{display:inline-block;padding:4px 10px;border-radius:4px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;background:#18181b;color:#fff;}
+  .footer{margin-top:36px;padding-top:16px;border-top:1px solid #e4e4e7;font-size:11px;color:#71717a;line-height:1.5;}
+  @media print{body{background:#fff;padding:0;}.invoice{box-shadow:none;padding:24px;}}
+</style>
+</head>
+<body>
+  <div class="invoice">
+    <div class="head">
+      <div>
+        <div class="brand">PasteShare</div>
+        <div class="brand-sub">Code &amp; file sharing</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="label">Invoice</div>
+        <div class="value mono">${escapeHtml(invoice.number)}</div>
+        <div class="label" style="margin-top:12px;">Status</div>
+        <span class="badge">${escapeHtml(status)}</span>
+      </div>
+    </div>
+
+    <div class="grid section">
+      <div>
+        <div class="label">Billed to</div>
+        <div class="value">${escapeHtml(customerName)}</div>
+        <div class="value" style="color:#71717a;">${escapeHtml(customer)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="label">Issued</div>
+        <div class="value">${escapeHtml(issued)}</div>
+        <div class="label" style="margin-top:12px;">Billing period</div>
+        <div class="value">${escapeHtml(periodStart)} &mdash; ${escapeHtml(periodEnd)}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Line items</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="amount">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>${escapeHtml(planName)} subscription</td>
+            <td class="amount">${escapeHtml(amountStr)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="total">
+        <span class="total-label">Total due</span>
+        <span class="total-amount">${escapeHtml(amountStr)}</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Payment</div>
+      <div class="grid">
+        <div>
+          <div class="label">Method</div>
+          <div class="value">${escapeHtml(methodName)}</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="label">Transaction ID</div>
+          <div class="value mono">${escapeHtml(txnId)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      This is a computer-generated invoice and does not require a signature.<br>
+      For billing questions, contact the PasteShare administrator.
+    </div>
+  </div>
+</body>
+</html>`
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${invoice.number || 'invoice'}.html`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function PaymentsTab() {
+  const [payments, setPayments] = useState<PaymentRow[]>([])
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [resending, setResending] = useState<string | null>(null)
+
+  // Create-payment dialog state
+  const [createOpen, setCreateOpen] = useState(false)
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [plans, setPlans] = useState<Plan[]>([])
+  const [userQuery, setUserQuery] = useState('')
+  const [userId, setUserId] = useState('')
+  const [planId, setPlanId] = useState('')
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState('manual')
+  const [txnId, setTxnId] = useState('')
+  const [status, setStatus] = useState('completed')
+  const [busy, setBusy] = useState(false)
+
+  async function fetchPayments() {
+    setLoading(true)
+    try {
+      const [p, i] = await Promise.all([
+        api.admin.listPayments(
+          statusFilter === 'all' ? undefined : statusFilter,
+        ),
+        api.admin.listInvoices(),
+      ])
+      setPayments(p as PaymentRow[])
+      setInvoices(i as InvoiceRow[])
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : 'Failed to load payments.',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPayments()
+  }, [statusFilter])
+
+  async function openCreate() {
+    try {
+      const [u, p] = await Promise.all([
+        api.admin.listUsers(),
+        api.admin.listPlans(),
+      ])
+      const nonAdmins = u.filter((usr) => usr.role !== 'admin')
+      const regularPlans = p
+        .filter((plan) => plan.isActive && plan.name.toLowerCase() !== 'admin')
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+      setUsers(nonAdmins)
+      setPlans(regularPlans)
+      setUserId('')
+      setPlanId(regularPlans[0]?.id || '')
+      setAmount(regularPlans[0] ? String(regularPlans[0].monthlyPrice) : '')
+      setMethod('manual')
+      setTxnId('')
+      setStatus('completed')
+      setUserQuery('')
+      setCreateOpen(true)
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : 'Failed to load users/plans.',
+      )
+    }
+  }
+
+  function pickPlan(id: string) {
+    setPlanId(id)
+    const plan = plans.find((p) => p.id === id)
+    if (plan) setAmount(String(plan.monthlyPrice))
+  }
+
+  async function createPayment() {
+    if (!userId) {
+      toast.error('Pick a user.')
+      return
+    }
+    if (!planId) {
+      toast.error('Pick a plan.')
+      return
+    }
+    const amt = Number(amount || 0)
+    if (isNaN(amt) || amt < 0) {
+      toast.error('Enter a valid amount.')
+      return
+    }
+    setBusy(true)
+    try {
+      await api.admin.createPayment({
+        userId,
+        planId,
+        amount: amt,
+        method,
+        txnId: txnId || undefined,
+        status,
+      })
+      toast.success('Payment recorded · receipt email queued (check audit log)')
+      setCreateOpen(false)
+      fetchPayments()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Create failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function resendReceipt(p: PaymentRow) {
+    setResending(p.id)
+    try {
+      await api.admin.updatePayment(p.id, { notes: 'receipt_resent' })
+      toast.success('Receipt email queued (check audit log)')
+      fetchPayments()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Resend failed.')
+    } finally {
+      setResending(null)
+    }
+  }
+
+  const invoiceByPayment = useMemo(() => {
+    const m = new Map<string, InvoiceRow>()
+    for (const inv of invoices) m.set(inv.paymentId, inv)
+    return m
+  }, [invoices])
+
+  const filteredUsers = useMemo(() => {
+    const nonAdmins = users.filter((u) => u.role !== 'admin')
+    if (!userQuery.trim()) return nonAdmins.slice(0, 50)
+    const q = userQuery.toLowerCase()
+    return nonAdmins
+      .filter(
+        (u) =>
+          u.email.toLowerCase().includes(q) ||
+          (u.displayName || '').toLowerCase().includes(q),
+      )
+      .slice(0, 50)
+  }, [users, userQuery])
+
+  return (
+    <div className="space-y-4">
+      <Reveal variant={fadeUp}>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="font-mono text-xs text-brand">
+              <span className="text-muted-foreground">{'>'}</span> sudo payments
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight">
+              Payments &amp; Invoices
+            </h2>
+          </div>
+          <Button
+            onClick={openCreate}
+            className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            size="sm"
+          >
+            <Plus className="h-3.5 w-3.5" /> Record payment
+          </Button>
+        </div>
+      </Reveal>
+
+      <Reveal variant={fadeUp}>
+        <div className="flex flex-wrap gap-1.5">
+          {['all', 'completed', 'pending', 'failed', 'refunded'].map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`font-mono rounded-md px-2.5 py-1 text-[10px] uppercase tracking-wider transition-colors ${
+                statusFilter === s
+                  ? 'bg-brand text-brand-foreground'
+                  : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </Reveal>
+
+      <Reveal variant={fadeUp} delay={0.05}>
+        <div
+          className={`surface overflow-hidden rounded-xl ${SCROLLBAR_CLASS}`}
+        >
+          <div className={`max-h-[60vh] overflow-y-auto ${SCROLLBAR_CLASS}`}>
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-surface-2">
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    User
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Plan
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Amount
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Status
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Method
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Invoice #
+                  </TableHead>
+                  <TableHead className="font-mono px-4 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Date
+                  </TableHead>
+                  <TableHead className="px-4" />
+                </TableRow>
+              </TableHeader>
+              <motion.tbody
+                variants={staggerContainer(0.04)}
+                initial="hidden"
+                animate="show"
+              >
+                {loading ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={8}
+                      className="px-4 py-12 text-center text-sm text-muted-foreground"
+                    >
+                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-brand" />
+                      Loading payments&hellip;
+                    </TableCell>
+                  </TableRow>
+                ) : payments.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={8}
+                      className="px-4 py-12 text-center text-sm text-muted-foreground"
+                    >
+                      No payments found.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  payments.map((p) => {
+                    const invoice = invoiceByPayment.get(p.id)
+                    return (
+                      <motion.tr
+                        key={p.id}
+                        variants={fadeUp}
+                        className="border-border border-b transition-colors hover:bg-surface-3"
+                      >
+                        <TableCell className="px-4 py-3">
+                          <p className="text-sm font-medium">
+                            {p.user?.email || 'unknown'}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {p.user?.displayName || '\u2014'}
+                          </p>
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <p className="text-sm">{p.plan?.name || '\u2014'}</p>
+                          <p className="font-mono text-[10px] text-muted-foreground">
+                            {p.plan && p.plan.monthlyPrice > 0
+                              ? `$${p.plan.monthlyPrice.toFixed(2)}/mo`
+                              : 'Free'}
+                          </p>
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-xs">
+                          {p.currency} {p.amount.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <PaymentStatusBadge status={p.status} />
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                          {p.method}
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-[11px]">
+                          {p.invoiceNumber || '\u2014'}
+                        </TableCell>
+                        <TableCell className="font-mono px-4 py-3 text-[11px] text-muted-foreground">
+                          {formatRelativeTime(p.createdAt)}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2 text-[11px]"
+                              disabled={!invoice}
+                              onClick={() => {
+                                if (invoice) {
+                                  downloadInvoiceHTML(
+                                    invoice,
+                                    p,
+                                    p.user,
+                                    p.plan,
+                                  )
+                                }
+                              }}
+                              title={
+                                invoice
+                                  ? 'Download invoice HTML'
+                                  : 'No invoice linked'
+                              }
+                            >
+                              <Download className="h-3.5 w-3.5" /> Invoice
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2 text-[11px]"
+                              disabled={resending === p.id}
+                              onClick={() => resendReceipt(p)}
+                              title="Resend receipt email"
+                            >
+                              {resending === p.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Send className="h-3.5 w-3.5" />
+                              )}
+                              Resend
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </motion.tr>
+                    )
+                  })
+                )}
+              </motion.tbody>
+            </Table>
+          </div>
+        </div>
+      </Reveal>
+
+      {/* Create-payment dialog */}
+      <Dialog
+        open={createOpen}
+        onOpenChange={(o) => !busy && setCreateOpen(o)}
+      >
+        <DialogContent className="surface-2 max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Record payment</DialogTitle>
+            <DialogDescription>
+              Manually record a payment for a non-admin user. An invoice will
+              be auto-generated and a receipt email will be queued (visible in
+              the audit log).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Field label="User">
+              <Input
+                value={userQuery}
+                onChange={(e) => setUserQuery(e.target.value)}
+                placeholder="Search by email or name&hellip;"
+                className={INPUT_CLASS}
+              />
+              <div
+                className={`surface-3 mt-1.5 max-h-44 overflow-y-auto rounded-md ${SCROLLBAR_CLASS}`}
+              >
+                {filteredUsers.length === 0 ? (
+                  <p className="px-3 py-2 text-[11px] text-muted-foreground">
+                    No users.
+                  </p>
+                ) : (
+                  filteredUsers.map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => {
+                        setUserId(u.id)
+                        setUserQuery(u.email)
+                      }}
+                      className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-surface-2 ${
+                        userId === u.id ? 'bg-brand/10 text-brand' : ''
+                      }`}
+                    >
+                      <span className="truncate">
+                        <span className="font-medium">{u.email}</span>
+                        {u.displayName && (
+                          <span className="text-muted-foreground">
+                            {' '}
+                            &mdash; {u.displayName}
+                          </span>
+                        )}
+                      </span>
+                      {userId === u.id && (
+                        <Check className="h-3 w-3 shrink-0" />
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            </Field>
+            <Field label="Plan">
+              <Select value={planId} onValueChange={pickPlan}>
+                <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                  <SelectValue placeholder="Select plan" />
+                </SelectTrigger>
+                <SelectContent>
+                  {plans.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}{' '}
+                      {p.monthlyPrice > 0
+                        ? `($${p.monthlyPrice.toFixed(2)}/mo)`
+                        : '(Free)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Amount">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className={INPUT_CLASS}
+                  placeholder="0.00"
+                />
+              </Field>
+              <Field label="Method">
+                <Select value={method} onValueChange={setMethod}>
+                  <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual">manual</SelectItem>
+                    <SelectItem value="stripe">stripe</SelectItem>
+                    <SelectItem value="paypal">paypal</SelectItem>
+                    <SelectItem value="razorpay">razorpay</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Transaction ID (optional)">
+                <Input
+                  value={txnId}
+                  onChange={(e) => setTxnId(e.target.value)}
+                  className={INPUT_CLASS}
+                  placeholder="tx_…"
+                />
+              </Field>
+              <Field label="Status">
+                <Select value={status} onValueChange={setStatus}>
+                  <SelectTrigger className={`${INPUT_CLASS} w-full`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="completed">completed</SelectItem>
+                    <SelectItem value="pending">pending</SelectItem>
+                    <SelectItem value="failed">failed</SelectItem>
+                    <SelectItem value="refunded">refunded</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setCreateOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={createPayment}
+              disabled={busy}
+              className="btn-shine bg-brand text-brand-foreground hover:bg-brand/90"
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Plus className="h-3.5 w-3.5" />
+              )}
+              Record payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function PaymentStatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase()
+  if (s === 'completed')
+    return (
+      <span className="inline-flex items-center rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
+        {status}
+      </span>
+    )
+  if (s === 'refunded' || s === 'failed')
+    return (
+      <span className="inline-flex items-center rounded-md bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+        {status}
+      </span>
+    )
+  if (s === 'pending')
+    return (
+      <span className="inline-flex items-center rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
         {status}
       </span>
     )
