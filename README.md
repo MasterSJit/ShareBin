@@ -5,8 +5,6 @@
 > a REST API with API keys, and a full admin panel. Built with Next.js 16, TypeScript,
 > Prisma (SQLite) and Monaco Editor.
 
-![ShareBin](public/logo.svg)
-
 The site name, tagline, logo and SEO settings are configurable from **Admin → Settings**
 (the codebase and seed data still use the original name *PasteShare* in a few places).
 
@@ -14,15 +12,29 @@ The site name, tagline, logo and SEO settings are configurable from **Admin → 
 
 ## Contents
 
-- [Features](#features)
-- [Quick start](#quick-start)
-- [Using ShareBin](#using-sharebin)
-- [Command line & API](#command-line--api)
-- [Configuration](#configuration)
-- [Project structure](#project-structure)
-- [Security model](#security-model)
-- [Scripts](#scripts)
-- [Further documentation](#further-documentation)
+- [ShareBin](#sharebin)
+  - [Contents](#contents)
+  - [Features](#features)
+    - [Sharing](#sharing)
+    - [Privacy \& lifetime](#privacy--lifetime)
+    - [For signed-in users](#for-signed-in-users)
+    - [Moderation \& administration](#moderation--administration)
+    - [Platform](#platform)
+  - [Quick start](#quick-start)
+    - [Prerequisites](#prerequisites)
+    - [Install and run](#install-and-run)
+    - [Default admin account](#default-admin-account)
+    - [Upgrading an existing installation](#upgrading-an-existing-installation)
+  - [Using ShareBin](#using-sharebin)
+  - [Command line \& API](#command-line--api)
+  - [Configuration](#configuration)
+    - [Environment variables (`.env`)](#environment-variables-env)
+    - [Site settings (Admin → Settings / API)](#site-settings-admin--settings--api)
+  - [Project structure](#project-structure)
+  - [Security model](#security-model)
+  - [Scripts](#scripts)
+  - [Further documentation](#further-documentation)
+  - [License](#license)
 
 ---
 
