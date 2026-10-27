@@ -37,8 +37,10 @@ import {
 import {
   Check,
   ChevronDown,
+  Copy,
   Eye,
   EyeOff,
+  HardDrive,
   KeyRound,
   Loader2,
   Lock,
@@ -46,14 +48,17 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Shield,
   Trash2,
+  XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
 import { PasteCard } from '@/components/paste-card'
-import { EXPIRY_OPTIONS } from '@/lib/ui-utils'
+import { EXPIRY_OPTIONS, formatBytes, formatDate } from '@/lib/ui-utils'
+import { copyText } from '@/components/share-dialog'
 import {
   AnimatedNumber,
   Reveal,
@@ -72,6 +77,8 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'burned', label: 'Burned' },
   { key: 'flagged', label: 'Flagged' },
 ]
+
+const OWN_PAGE_SIZE = 30
 
 const INPUT_CLASS =
   'bg-surface-3 border-border rounded-md focus-visible:ring-brand text-sm'
@@ -119,30 +126,47 @@ function DashboardInner() {
 
   const [pastes, setPastes] = useState<SafePaste[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
   const [filter, setFilter] = useState<FilterKey>('all')
+  const [search, setSearch] = useState('')
   const [editing, setEditing] = useState<SafePaste | null>(null)
   const [deleting, setDeleting] = useState<SafePaste | null>(null)
+  const [usageNonce, setUsageNonce] = useState(0)
 
   const name = user.displayName || user.email.split('@')[0]
 
-  async function fetchPastes() {
-    setLoading(true)
+  async function fetchPastes(pageNum = 1) {
+    if (pageNum === 1) setLoading(true)
+    else setLoadingMore(true)
     try {
-      const rows = await api.listPastes({ scope: 'own', pageSize: 50 })
-      setPastes(rows)
+      const rows = await api.listPastes({ scope: 'own', pageSize: OWN_PAGE_SIZE, page: pageNum })
+      setPastes((cur) => (pageNum === 1 ? rows : [...cur, ...rows]))
+      setPage(pageNum)
+      setHasMore(rows.length === OWN_PAGE_SIZE)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Failed to load pastes.')
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }
 
   useEffect(() => {
-    fetchPastes()
+    fetchPastes(1)
   }, [])
 
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
     return pastes.filter((p) => {
+      if (q) {
+        const hay = [p.title, p.slug, p.description, p.language, p.originalFileName, ...p.tags]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        if (!hay.includes(q)) return false
+      }
       if (filter === 'active')
         return !p.isExpired && !p.isBurned && !p.isFlagged
       if (filter === 'expired') return p.isExpired
@@ -150,12 +174,13 @@ function DashboardInner() {
       if (filter === 'flagged') return p.isFlagged
       return true
     })
-  }, [pastes, filter])
+  }, [pastes, filter, search])
 
   async function onDelete(p: SafePaste) {
     try {
       await api.deletePaste(p.id)
       setPastes((cur) => cur.filter((x) => x.id !== p.id))
+      setUsageNonce((n) => n + 1)
       toast.success('Paste deleted')
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Delete failed.')
@@ -181,16 +206,17 @@ function DashboardInner() {
 
       <div className="lg:grid lg:grid-cols-3 lg:gap-6">
         {/* Profile */}
-        <div className="lg:col-span-1">
+        <div className="grid content-start items-start gap-6 md:grid-cols-2 lg:col-span-1 lg:grid-cols-1 lg:self-start">
           <ProfileCard
             user={user}
             setUser={setUser}
             goHome={goHome}
           />
+          <UsageCard nonce={usageNonce} />
         </div>
 
         {/* My pastes */}
-        <div className="lg:col-span-2">
+        <div className="mt-6 lg:col-span-2 lg:mt-0">
           <Reveal variant={fadeUp} delay={0.05}>
             <div className="surface rounded-2xl p-5">
               {/* Header row */}
@@ -211,6 +237,18 @@ function DashboardInner() {
                 >
                   <Plus className="h-4 w-4" /> New paste
                 </Button>
+              </div>
+
+              {/* Search */}
+              <div className="relative mb-3">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by title, slug, tag, language…"
+                  className={`${INPUT_CLASS} pl-8`}
+                  aria-label="Search my pastes"
+                />
               </div>
 
               {/* Filter chips */}
@@ -243,7 +281,9 @@ function DashboardInner() {
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="surface-2 rounded-xl p-12 text-center">
-                  <p className="text-sm text-muted-foreground">No pastes yet</p>
+                  <p className="text-sm text-muted-foreground">
+                    {pastes.length === 0 ? 'No pastes yet' : 'No pastes match these filters'}
+                  </p>
                   <Button
                     onClick={goHome}
                     className="btn-shine mt-4 gap-1.5 bg-brand text-brand-foreground hover:bg-brand/90"
@@ -253,31 +293,42 @@ function DashboardInner() {
                   </Button>
                 </div>
               ) : (
-                <StaggerGroup stagger={0.05} className="space-y-4">
+                <StaggerGroup stagger={0.05} className="space-y-3">
                   {filtered.map((p) => (
                     <Reveal key={p.id} variant={fadeUp}>
-                      <PasteCard paste={p} />
-                      <div className="mt-2 flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditing(p)}
-                          className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-                        >
-                          <Pencil className="h-3 w-3" /> Edit
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleting(p)}
-                          className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 className="h-3 w-3" /> Delete
-                        </Button>
-                      </div>
+                      <PasteCard
+                        paste={p}
+                        actions={
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setEditing(p)}
+                              className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                            >
+                              <Pencil className="h-3 w-3" /> Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleting(p)}
+                              className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <Trash2 className="h-3 w-3" /> Delete
+                            </Button>
+                          </>
+                        }
+                      />
                     </Reveal>
                   ))}
                 </StaggerGroup>
+              )}
+              {!loading && hasMore && (
+                <div className="mt-4 flex justify-center">
+                  <Button variant="outline" size="sm" onClick={() => fetchPastes(page + 1)} disabled={loadingMore} className="gap-1.5">
+                    {loadingMore && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Load more
+                  </Button>
+                </div>
               )}
             </div>
           </Reveal>
@@ -327,6 +378,115 @@ function DashboardInner() {
   )
 }
 
+function curlExample(key: string) {
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  return `curl -H "x-api-key: ${key}" --data-binary @file.txt "${origin}/api/paste?format=url"`
+}
+
+/* ---------------- Plan & usage ---------------- */
+
+type LimitsData = Awaited<ReturnType<typeof api.myLimits>>[number]
+
+function UsageCard({ nonce }: { nonce: number }) {
+  const [data, setData] = useState<LimitsData | null>(null)
+
+  useEffect(() => {
+    let active = true
+    api
+      .myLimits()
+      .then((rows) => {
+        if (active && rows[0]) setData(rows[0])
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [nonce])
+
+  if (!data) return <div className="surface shimmer h-48 rounded-2xl" aria-hidden />
+
+  const { plan, usage, subscription } = data
+  const storagePct = plan.maxStorageBytes ? Math.min(100, (usage.storageBytes / plan.maxStorageBytes) * 100) : 0
+  const monthPct = plan.maxPastesPerMonth ? Math.min(100, (usage.monthPasteCount / plan.maxPastesPerMonth) * 100) : 0
+  const features: [string, boolean][] = [
+    ['File uploads', plan.allowFileUpload],
+    ['Private pastes', plan.allowPrivate],
+    ['Passwords', plan.allowPassword],
+    ['Burn after read', plan.allowBurnAfterRead],
+    ['Custom expiry', plan.allowCustomExpiry],
+  ]
+
+  return (
+    <Reveal variant={scaleIn}>
+      <div className="surface rounded-2xl p-5">
+        <div className="flex items-center justify-between">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">Plan</p>
+          <span className="rounded-md bg-brand/15 px-2 py-0.5 text-xs font-medium text-brand">{plan.name}</span>
+        </div>
+        {subscription?.expiresAt && (
+          <p className="mt-1 text-[11px] text-muted-foreground">Renews / expires {formatDate(subscription.expiresAt)}</p>
+        )}
+
+        <UsageBar
+          icon={<HardDrive className="h-3.5 w-3.5" />}
+          label="Storage"
+          value={`${formatBytes(usage.storageBytes)} / ${formatBytes(plan.maxStorageBytes)}`}
+          pct={storagePct}
+        />
+        <UsageBar
+          icon={<Plus className="h-3.5 w-3.5" />}
+          label="Pastes this month"
+          value={`${usage.monthPasteCount} / ${plan.maxPastesPerMonth}`}
+          pct={monthPct}
+        />
+
+        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+          <MiniStat label="Pastes" value={usage.pasteCount} />
+          <MiniStat label="Files" value={usage.fileCount} />
+          <MiniStat label="Views" value={usage.totalViews} />
+        </div>
+
+        <ul className="mt-4 space-y-1 text-[11px]">
+          <li className="text-muted-foreground">Max {formatBytes(plan.maxPasteSize)} per paste/file</li>
+          {features.map(([label, on]) => (
+            <li key={label} className={`flex items-center gap-1.5 ${on ? 'text-foreground' : 'text-muted-foreground line-through'}`}>
+              {on ? <Check className="h-3 w-3 text-brand" /> : <XCircle className="h-3 w-3" />} {label}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Reveal>
+  )
+}
+
+function UsageBar({ icon, label, value, pct }: { icon: React.ReactNode; label: string; value: string; pct: number }) {
+  return (
+    <div className="mt-4 space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          {icon} {label}
+        </span>
+        <span className="font-mono text-[11px]">{value}</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
+        <div
+          className={`h-full rounded-full ${pct > 90 ? 'bg-destructive' : pct > 70 ? 'bg-amber-500' : 'bg-brand'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function MiniStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="surface-3 rounded-md py-2">
+      <AnimatedNumber value={value} className="font-mono text-sm font-semibold" />
+      <p className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+    </div>
+  )
+}
+
 /* ---------------- Profile card ---------------- */
 
 function ProfileCard({
@@ -354,6 +514,22 @@ function ProfileCard({
       }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Failed to regenerate.')
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  async function revoke() {
+    setRegenerating(true)
+    try {
+      const rows = await api.updateProfile({ revokeApiKey: true })
+      const u = rows[0] as SafeUser | undefined
+      if (u) {
+        setUser(u)
+        toast.success('API key revoked')
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'Failed to revoke.')
     } finally {
       setRegenerating(false)
     }
@@ -412,12 +588,22 @@ function ProfileCard({
                   <Eye className="h-3.5 w-3.5" />
                 )}
               </button>
+              {user.apiKey && (
+                <button
+                  type="button"
+                  onClick={() => copyText(user.apiKey!, 'API key copied')}
+                  className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-brand"
+                  title="Copy"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={regenerate}
                 disabled={regenerating}
                 className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-brand disabled:opacity-50"
-                title="Regenerate"
+                title={user.apiKey ? 'Regenerate (the old key stops working)' : 'Generate'}
               >
                 {regenerating ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -425,8 +611,34 @@ function ProfileCard({
                   <RefreshCw className="h-3.5 w-3.5" />
                 )}
               </button>
+              {user.apiKey && (
+                <button
+                  type="button"
+                  onClick={revoke}
+                  disabled={regenerating}
+                  className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
+                  title="Revoke"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </div>
+          {user.apiKey ? (
+            <div className="mt-2 space-y-1">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Try it</p>
+              <button
+                type="button"
+                onClick={() => copyText(curlExample(user.apiKey!), 'Command copied')}
+                className="w-full rounded-md bg-surface-3 p-2 text-left font-mono text-[10px] leading-relaxed text-muted-foreground hover:text-foreground"
+                title="Copy command"
+              >
+                {curlExample(showKey ? user.apiKey : 'ps_…')}
+              </button>
+            </div>
+          ) : (
+            <p className="mt-1.5 text-[11px] text-muted-foreground">Generate a key to create pastes from scripts and the command line.</p>
+          )}
         </div>
 
         {/* Collapsibles */}
@@ -740,7 +952,7 @@ function EditPasteDialog({
   const [description, setDescription] = useState('')
   const [tags, setTags] = useState('')
   const [visibility, setVisibility] = useState('public')
-  const [expiry, setExpiry] = useState('never')
+  const [expiry, setExpiry] = useState('keep')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -749,7 +961,7 @@ function EditPasteDialog({
       setDescription(paste.description || '')
       setTags((paste.tags || []).join(', '))
       setVisibility(paste.visibility)
-      setExpiry('never')
+      setExpiry('keep')
     }
   }, [paste])
 
@@ -764,10 +976,10 @@ function EditPasteDialog({
           .split(',')
           .map((t) => t.trim())
           .filter(Boolean)
-          .join(','),
+          .join(',') || null,
         visibility,
       }
-      if (expiry !== 'never') patch.expiryPreset = expiry
+      if (expiry !== 'keep') patch.expiryPreset = expiry
       const rows = await api.updatePaste(paste.id, patch)
       const updated = rows[0] as SafePaste | undefined
       if (updated) {
@@ -859,16 +1071,17 @@ function EditPasteDialog({
             </div>
             <div className="space-y-1.5">
               <Label className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-                Extend expiry
+                Expiry
               </Label>
               <Select value={expiry} onValueChange={setExpiry}>
                 <SelectTrigger className={`${INPUT_CLASS} w-full`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {EXPIRY_OPTIONS.map((o) => (
+                  <SelectItem value="keep">Keep current</SelectItem>
+                  {EXPIRY_OPTIONS.filter((o) => o.value !== 'custom').map((o) => (
                     <SelectItem key={o.value} value={o.value}>
-                      {o.label}
+                      {o.value === 'never' ? 'Never (remove expiry)' : `${o.label} from now`}
                     </SelectItem>
                   ))}
                 </SelectContent>

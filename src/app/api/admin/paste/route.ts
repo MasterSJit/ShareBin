@@ -1,15 +1,15 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { ok, unauthorized, forbidden, notFound, badRequest, gone } from '@/lib/api-response'
+import { ok, unauthorized, forbidden, notFound, badRequest } from '@/lib/api-response'
 import { getSession } from '@/lib/auth'
-import { auditLog, isExpired } from '@/lib/paste-utils'
-import { toSafePaste, invalidatePaste } from '@/lib/paste-access'
-import { getStorage } from '@/lib/storage'
+import { auditLog } from '@/lib/paste-utils'
+import { toSafePaste, invalidatePasteRecord, canModerate } from '@/lib/paste-access'
 
+// Content moderation: admins, or any role granted the `admin:content` permission.
 async function requireAdmin() {
   const session = await getSession()
   if (!session) return { error: unauthorized('Authentication required') as Response, session: null }
-  if (session.role !== 'admin') return { error: forbidden('Admin only') as Response, session: null }
+  if (!(await canModerate(session))) return { error: forbidden('Admin only') as Response, session: null }
   return { error: null, session }
 }
 
@@ -19,12 +19,15 @@ export async function GET(req: NextRequest) {
   if (error || !session) return error
 
   const { searchParams } = new URL(req.url)
-  const q = searchParams.get('q')?.toLowerCase()
+  const q = searchParams.get('q')?.trim()
   const flagged = searchParams.get('flagged') === '1'
   const expired = searchParams.get('expired') === '1'
 
   const where: Record<string, unknown> = { isDeleted: false }
   if (flagged) where.isFlagged = true
+  if (expired) where.expiresAt = { lt: new Date() }
+  const type = searchParams.get('type')
+  if (type === 'text' || type === 'file') where.contentType = type
   if (q) {
     where.OR = [
       { title: { contains: q } },
@@ -35,20 +38,14 @@ export async function GET(req: NextRequest) {
     ]
   }
 
-  let rows = await db.paste.findMany({
+  const rows = await db.paste.findMany({
     where,
     include: { owner: true },
     orderBy: { createdAt: 'desc' },
     take: 200,
   })
 
-  if (expired) {
-    rows = rows.filter((p) => isExpired(p.expiresAt))
-  } else {
-    // by default also show expired (admin oversight), but not burned-deleted
-  }
-
-  return ok('Pastes fetched', rows.map((p) => toSafePaste(p, { includeContent: false })))
+  return ok('Pastes fetched', rows.map((p) => toSafePaste(p, { includeContent: false, includePreview: true })))
 }
 
 // PATCH /api/admin/paste — flag/unflag/force-expire/edit any paste
@@ -107,9 +104,11 @@ export async function PATCH(req: NextRequest) {
 
   if (Object.keys(patch).length === 0) return badRequest('No valid fields to update')
   const updated = await db.paste.update({ where: { id: paste.id }, data: patch, include: { owner: true } })
-  invalidatePaste(paste.slug)
-  invalidatePaste(paste.id)
-  await auditLog(session.userId, 'update_paste', 'paste', paste.id, { after: patch })
+  invalidatePasteRecord(paste)
+  const { textContent: _body, ...loggable } = patch
+  await auditLog(session.userId, 'update_paste', 'paste', paste.id, {
+    after: { ...loggable, ...(patch.textContent !== undefined ? { textContent: '(edited)' } : {}) },
+  })
   return ok('Paste updated', [toSafePaste(updated)])
 }
 

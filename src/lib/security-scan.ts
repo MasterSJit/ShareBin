@@ -21,6 +21,13 @@ export type TextScanOptions = {
   bannedWords?: readonly string[]
   /** Pastes longer than this many characters are scanned for repetition. */
   repetitionThreshold?: number
+  /**
+   * Also reject XSS / SQL-injection / eval signatures. Off by default: this
+   * is a code-sharing site and pastes are displayed as plain text (never as
+   * HTML), so code that *contains* `<script>`, `--`, `#` or `exec(` is
+   * harmless and legitimate. Enable via the `spamScanStrict` site setting.
+   */
+  strict?: boolean
 }
 
 // ---- Patterns --------------------------------------------------------------
@@ -69,8 +76,8 @@ const EXECUTABLE_MIME_TYPES: ReadonlySet<string> = new Set([
   'application/x-shockwave-flash',
 ])
 
-// Banned file extensions (lower-case, no dot)
-const BANNED_EXTENSIONS: ReadonlySet<string> = new Set([
+// Default banned file extensions (lower-case, no dot)
+const DEFAULT_BANNED_EXTENSIONS: ReadonlySet<string> = new Set([
   'exe',
   'bat',
   'cmd',
@@ -160,9 +167,11 @@ export function scanTextContent(
   const threats: string[] = []
   const text = content ?? ''
 
-  // 1. Known malicious patterns (XSS, SQLi, code injection)
-  for (const { threat, re } of THREAT_PATTERNS) {
-    if (re.test(text)) threats.push(threat)
+  // 1. Known malicious patterns (XSS, SQLi, code injection) — strict mode only
+  if (opts.strict) {
+    for (const { threat, re } of THREAT_PATTERNS) {
+      if (re.test(text)) threats.push(threat)
+    }
   }
 
   // 2. Banned words
@@ -197,10 +206,19 @@ export function scanTextContent(
  * @param fileName  Original file name (e.g. "report.pdf").
  * @param mimeType  MIME type from the upload (may be empty / untrusted).
  */
-export function scanFileName(fileName: string, mimeType: string): ScanResult {
+export function scanFileName(
+  fileName: string,
+  mimeType: string,
+  opts: { bannedExtensions?: readonly string[] } = {},
+): ScanResult {
   const threats: string[] = []
   const name = (fileName || '').trim()
   const mime = (mimeType || '').trim().toLowerCase()
+  // The admin-configured list (site setting `bannedFileExtensions`) wins when set.
+  const BANNED_EXTENSIONS: ReadonlySet<string> =
+    opts.bannedExtensions && opts.bannedExtensions.length > 0
+      ? new Set(opts.bannedExtensions.map((e) => e.replace(/^\./, '')))
+      : DEFAULT_BANNED_EXTENSIONS
 
   // 1. Double / chained extensions where the last is benign but a hidden
   //    executable extension sits in the middle: file.exe.jpg, invoice.pdf.exe
@@ -242,7 +260,11 @@ export function scanFileName(fileName: string, mimeType: string): ScanResult {
  * @param buf       File bytes.
  * @param mimeType  Declared MIME type.
  */
-export function scanFileContent(buf: Buffer, mimeType: string): ScanResult {
+export function scanFileContent(
+  buf: Buffer,
+  mimeType: string,
+  opts: { strict?: boolean } = {},
+): ScanResult {
   const threats: string[] = []
   if (!buf || buf.length === 0) return { safe: true, threats }
 
@@ -283,13 +305,15 @@ export function scanFileContent(buf: Buffer, mimeType: string): ScanResult {
     }
   }
 
-  // 3. <script> tags inside non-script text files
-  //    (text/html, text/xml, application/xhtml, image/svg+xml)
+  // 3. <script> tags inside markup files — strict mode only. Files are always
+  //    served with `nosniff` + a sandboxing CSP, so embedded scripts can't run
+  //    on this origin; strict mode is for admins who want them rejected anyway.
   if (
-    mime.startsWith('text/') ||
-    mime === 'image/svg+xml' ||
-    mime === 'application/xhtml+xml' ||
-    mime === 'application/xml'
+    opts.strict &&
+    (mime.startsWith('text/') ||
+      mime === 'image/svg+xml' ||
+      mime === 'application/xhtml+xml' ||
+      mime === 'application/xml')
   ) {
     const head = buf.subarray(0, Math.min(buf.length, 64 * 1024)).toString('utf8')
     if (SCRIPT_TAG_RE.test(head)) threats.push('embedded_script_tag')

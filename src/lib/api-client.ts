@@ -7,14 +7,28 @@ import type { SafePaste, SafeUser, SafeAuditLog } from '@/lib/types'
 
 type Envelope<T> = { message: string; data: T[] }
 
-let unlockedPasteIds: Set<string> = new Set()
+// Unlock tokens returned by POST /api/paste/unlock. The server also sets an
+// httpOnly cookie, so this is a fallback for browsers that block cookies.
+const unlockTokens = new Map<string, string>()
 
-export function markUnlocked(pasteId: string) {
-  unlockedPasteIds.add(pasteId)
+export function rememberUnlockToken(pasteId: string, token: string) {
+  unlockTokens.set(pasteId, token)
 }
 
-export function getUnlockedHeader(): string {
-  return [...unlockedPasteIds].join(',')
+function unlockHeader(): string {
+  return [...unlockTokens.values()].slice(-20).join(',')
+}
+
+/** Absolute share URL for a paste (clean /p/<slug> form). */
+export function shareUrl(slug: string): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  return `${origin}/p/${slug}`
+}
+
+/** Absolute raw URL for a text paste. */
+export function rawUrl(slug: string): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  return `${origin}/raw/${slug}`
 }
 
 export class ApiError extends Error {
@@ -35,8 +49,8 @@ async function request<T>(
   const headers: Record<string, string> = {
     ...(opts.headers || {}),
   }
-  if (unlockedPasteIds.size > 0 && !headers['x-unlocked']) {
-    headers['x-unlocked'] = getUnlockedHeader()
+  if (unlockTokens.size > 0 && !headers['x-unlock-token']) {
+    headers['x-unlock-token'] = unlockHeader()
   }
   let body: BodyInit | undefined
   if (opts.formData) {
@@ -69,12 +83,12 @@ export const api = {
   register: (email: string, password: string, displayName?: string) =>
     request<SafeUser>('PUT', '/api/user', { body: { email, password, displayName } }),
   forgotPassword: (email: string) =>
-    request<{ token: string }>('POST', '/api/auth/forgot-password', { body: { email } }),
+    request<{ token?: string; link?: string }>('POST', '/api/auth/forgot-password', { body: { email } }),
   resetPassword: (token: string, password: string) =>
     request<unknown>('POST', '/api/auth/reset-password', { body: { token, password } }),
 
   // User
-  updateProfile: (patch: { displayName?: string; currentPassword?: string; newPassword?: string; regenerateApiKey?: boolean }) =>
+  updateProfile: (patch: { displayName?: string; currentPassword?: string; newPassword?: string; regenerateApiKey?: boolean; revokeApiKey?: boolean }) =>
     request<SafeUser>('PATCH', '/api/user', { body: patch }),
   deleteAccount: (currentPassword: string) =>
     request<unknown>('DELETE', '/api/user', { body: { currentPassword } }),
@@ -91,7 +105,7 @@ export const api = {
     burnAfterRead?: boolean
     expiryPreset?: string
     expiryCustom?: string
-  }) => request<SafePaste>('PUT', '/api/paste', { body }),
+  }) => request<SafePaste & { url: string; rawUrl: string }>('PUT', '/api/paste', { body }),
 
   updatePaste: (id: string, patch: Record<string, unknown>) =>
     request<SafePaste>('PATCH', '/api/paste', { body: { id, ...patch } }),
@@ -100,23 +114,77 @@ export const api = {
     request<unknown>('DELETE', '/api/paste', { body: { id } }),
 
   getPaste: (idOrSlug: string) =>
-    request<SafePaste & { passwordRequired?: boolean }>('GET', `/api/paste?id=${encodeURIComponent(idOrSlug)}`),
+    request<SafePaste>('GET', `/api/paste?id=${encodeURIComponent(idOrSlug)}`),
+  /** Metadata only — never counts a view or burns the paste. */
+  peekPaste: (idOrSlug: string) =>
+    request<SafePaste>('GET', `/api/paste?id=${encodeURIComponent(idOrSlug)}&peek=1`),
+  reportPaste: (id: string, reason: string, details?: string) =>
+    request<{ id: string; reason: string }>('POST', '/api/paste/report', { body: { id, reason, details } }),
 
-  listPastes: (params: { scope?: string; q?: string; language?: string; page?: number; pageSize?: number } = {}) => {
+  listPastes: (params: { scope?: string; q?: string; language?: string; type?: string; tag?: string; page?: number; pageSize?: number } = {}) => {
     const sp = new URLSearchParams()
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null) sp.set(k, String(v))
     return request<SafePaste>('GET', `/api/paste?${sp.toString()}`)
   },
 
-  unlockPaste: (id: string, password: string) =>
-    request<{ id: string; unlocked: boolean }>('POST', '/api/paste/unlock', { body: { id, password } }),
+  /** Verify a paste password; the returned token is remembered automatically. */
+  unlockPaste: async (id: string, password: string) => {
+    const rows = await request<{ id: string; slug: string; unlocked: boolean; token: string; expiresAt: string }>(
+      'POST', '/api/paste/unlock', { body: { id, password } },
+    )
+    if (rows[0]?.token) rememberUnlockToken(rows[0].id, rows[0].token)
+    return rows
+  },
 
   // File
   uploadFile: (formData: FormData) =>
-    request<SafePaste>('PUT', '/api/file', { formData }),
+    request<SafePaste & { url: string; rawUrl: string }>('PUT', '/api/file', { formData }),
   fileMeta: (idOrSlug: string) =>
-    request<SafePaste & { passwordRequired?: boolean }>('GET', `/api/file?id=${encodeURIComponent(idOrSlug)}&meta=1`),
+    request<SafePaste>('GET', `/api/file?id=${encodeURIComponent(idOrSlug)}&meta=1`),
+  /** Upload with progress reporting (fetch can't report upload progress). */
+  uploadFileWithProgress: (formData: FormData, onProgress: (fraction: number) => void) =>
+    new Promise<(SafePaste & { url: string; rawUrl: string })[]>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('PUT', '/api/file')
+      xhr.withCredentials = true
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total)
+      }
+      xhr.onerror = () => reject(new ApiError('Network error during upload', 0))
+      xhr.onload = () => {
+        let json: Envelope<SafePaste & { url: string; rawUrl: string }>
+        try {
+          json = JSON.parse(xhr.responseText)
+        } catch {
+          reject(new ApiError(`Upload failed (HTTP ${xhr.status})`, xhr.status))
+          return
+        }
+        if (xhr.status >= 400) reject(new ApiError(json.message || `HTTP ${xhr.status}`, xhr.status, json.data || []))
+        else resolve(json.data || [])
+      }
+      xhr.send(formData)
+    }),
+  /** Download URL (attachment). Counts a view; burns burn-after-read files. */
   fileDownloadUrl: (idOrSlug: string) => `/api/file?id=${encodeURIComponent(idOrSlug)}`,
+  /** Inline preview URL (safe types only, no view counted). */
+  filePreviewUrl: (idOrSlug: string) => `/api/file?id=${encodeURIComponent(idOrSlug)}&inline=1`,
+  /** Fetch file bytes once (used for burn-after-read files). */
+  fetchFileBlob: async (idOrSlug: string): Promise<Blob> => {
+    const res = await fetch(`/api/file?id=${encodeURIComponent(idOrSlug)}`, {
+      credentials: 'include',
+      headers: unlockTokens.size ? { 'x-unlock-token': unlockHeader() } : {},
+    })
+    if (!res.ok) {
+      let message = `HTTP ${res.status}`
+      try {
+        message = ((await res.json()) as { message?: string }).message || message
+      } catch {
+        /* non-JSON error */
+      }
+      throw new ApiError(message, res.status)
+    }
+    return res.blob()
+  },
 
   // Languages
   listLanguages: () => request<{ language: string; count: number }>('GET', '/api/languages'),

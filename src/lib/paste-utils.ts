@@ -1,19 +1,23 @@
+import crypto from 'crypto'
 import { db } from '@/lib/db'
 
-// Use a 6-char base62 slug, fallback to 8 chars on collision.
+// 8-char base62 slug (~47 bits) from a CSPRNG — unlisted pastes rely on the
+// slug being unguessable, so Math.random() and short slugs are not enough.
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
 function randomSlug(len: number): string {
   let s = ''
-  for (let i = 0; i < len; i++) {
-    s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)]
+  const bytes = crypto.randomBytes(len * 2)
+  for (let i = 0; s.length < len && i < bytes.length; i++) {
+    // Rejection sampling keeps the distribution uniform (248 = 62 * 4).
+    if (bytes[i] < 248) s += ALPHABET[bytes[i] % ALPHABET.length]
   }
-  return s
+  return s.length === len ? s : randomSlug(len)
 }
 
 export async function generateUniqueSlug(): Promise<string> {
   for (let attempt = 0; attempt < 6; attempt++) {
-    const slug = randomSlug(attempt < 3 ? 6 : 8)
+    const slug = randomSlug(attempt < 3 ? 8 : 10)
     const existing = await db.paste.findUnique({ where: { slug }, select: { id: true } })
     if (!existing) return slug
   }
@@ -78,9 +82,12 @@ export function sanitizeText(input: string | null | undefined): string {
     .slice(0, 10000)
 }
 
-/** Audit log helper (spec §2.8 / §5.3). */
+/**
+ * Audit log helper (spec §2.8 / §5.3). Pass `null` as the actor for
+ * system-initiated actions (cron, auto-expiry, burn-after-read).
+ */
 export async function auditLog(
-  adminId: string,
+  adminId: string | null,
   action: string,
   targetType: string,
   targetId: string,
@@ -152,9 +159,24 @@ const SETTING_DEFAULTS: Record<string, unknown> = {
   bannedWords: [], // array of strings blocked in paste text content
   bannedFileExtensions: 'exe,bat,cmd,com,scr,msi,vbs,ps1,sh,so,dll', // comma list
   spamScanEnabled: true,
+  // External API (x-api-key)
+  apiEnabled: true,
+  apiRateLimit: 60, // requests per minute per API key
+  apiRequireAuth: false, // true = API callers must send a key (no guest API pastes)
+  apiCorsOrigins: '', // comma list of allowed origins, '*' for any, '' = same-origin only
+  apiWebhookUrl: '',
+}
+
+// Settings are read several times per request; cache the merged map briefly.
+let settingsCache: { value: Record<string, unknown>; expiresAt: number } | null = null
+const SETTINGS_TTL_MS = 5_000
+
+export function invalidateSettingsCache() {
+  settingsCache = null
 }
 
 export async function getSettings(): Promise<Record<string, unknown>> {
+  if (settingsCache && settingsCache.expiresAt > Date.now()) return { ...settingsCache.value }
   const rows = await db.siteSetting.findMany()
   const merged: Record<string, unknown> = { ...SETTING_DEFAULTS }
   for (const row of rows) {
@@ -164,7 +186,8 @@ export async function getSettings(): Promise<Record<string, unknown>> {
       merged[row.key] = row.value
     }
   }
-  return merged
+  settingsCache = { value: merged, expiresAt: Date.now() + SETTINGS_TTL_MS }
+  return { ...merged }
 }
 
 export async function getSetting<T>(key: string): Promise<T> {
@@ -173,12 +196,13 @@ export async function getSetting<T>(key: string): Promise<T> {
 }
 
 export async function setSetting(key: string, value: unknown): Promise<void> {
-  const json = typeof value === 'string' ? JSON.stringify(value) : JSON.stringify(value)
+  const json = JSON.stringify(value)
   await db.siteSetting.upsert({
     where: { key },
     update: { value: json },
     create: { key, value: json },
   })
+  invalidateSettingsCache()
 }
 
 export async function setSettings(patch: Record<string, unknown>): Promise<void> {
@@ -187,9 +211,12 @@ export async function setSettings(patch: Record<string, unknown>): Promise<void>
   }
 }
 
-// ---- Background-ish job: flush view counters + expire soft-deleted pastes --
-
-export function flushViewCounters() {
-  // implemented in cache.ts via viewCounterDrain; this is the DB writer.
-  // (Called from /api/cron/ping or inline on each view for simplicity here.)
+/** Parse a comma-list or string[] setting into lower-cased, trimmed entries. */
+export function listSetting(value: unknown): string[] {
+  const raw = Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string')
+    : typeof value === 'string'
+      ? value.split(',')
+      : []
+  return raw.map((v) => v.trim().toLowerCase()).filter(Boolean)
 }

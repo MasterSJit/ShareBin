@@ -99,8 +99,27 @@ export async function PATCH(req: NextRequest) {
     'allowCustomExpiry', 'allowBurnAfterRead',
     'allowPassword', 'allowPrivate', 'allowFileUpload', 'isActive', 'sortOrder',
   ]
+  const numeric = new Set(['monthlyPrice', 'maxPasteSize', 'maxPastesPerMonth', 'sortOrder'])
+  const booleans = new Set(['allowCustomExpiry', 'allowBurnAfterRead', 'allowPassword', 'allowPrivate', 'allowFileUpload', 'isActive'])
   for (const f of fields) {
-    if (body[f] !== undefined) patch[f] = body[f]
+    if (body[f] === undefined) continue
+    if (numeric.has(f)) {
+      const n = Number(body[f])
+      if (!Number.isFinite(n) || n < 0) return badRequest(`${f} must be a non-negative number`)
+      patch[f] = f === 'monthlyPrice' ? n : Math.round(n)
+    } else if (booleans.has(f)) {
+      patch[f] = body[f] === true || body[f] === 'true'
+    } else if (f === 'name') {
+      const name = String(body.name).trim()
+      if (!name) return badRequest('name cannot be empty')
+      if (plan.isSystem && name !== plan.name) return badRequest('System plans cannot be renamed')
+      if (name !== plan.name && (await db.plan.findUnique({ where: { name } }))) {
+        return badRequest('Plan name already exists')
+      }
+      patch.name = name
+    } else {
+      patch[f] = body[f] === null ? null : String(body[f])
+    }
   }
   // allowedExpiryPresets: accept array OR string, store as comma-separated string
   if (body.allowedExpiryPresets !== undefined) {
@@ -127,6 +146,15 @@ export async function DELETE(req: NextRequest) {
   if (!plan) return notFound('Plan not found')
   if (plan.isSystem) return badRequest('System plans cannot be deleted')
 
+  // Payments reference the plan for billing history; deleting it would
+  // either fail (FK) or rewrite history. Deactivate it instead.
+  const paymentCount = await db.payment.count({ where: { planId: body.id } })
+  if (paymentCount > 0) {
+    await db.plan.update({ where: { id: body.id }, data: { isActive: false } })
+    await auditLog(session.userId, 'deactivate_plan', 'plan', body.id, { name: plan.name, paymentCount })
+    return ok(`Plan has ${paymentCount} payment(s) on record, so it was deactivated instead of deleted`, [])
+  }
+
   // Reassign users on this plan to Free
   const freePlan = await db.plan.findUnique({ where: { name: 'Free' } })
   if (freePlan) {
@@ -134,6 +162,8 @@ export async function DELETE(req: NextRequest) {
       where: { planId: body.id },
       data: { planId: freePlan.id },
     })
+  } else {
+    await db.subscription.deleteMany({ where: { planId: body.id } })
   }
   await db.plan.delete({ where: { id: body.id } })
   await auditLog(session.userId, 'delete_plan', 'plan', body.id, { name: plan.name })

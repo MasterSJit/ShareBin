@@ -1,5 +1,6 @@
 'use client'
 
+import type React from 'react'
 import { motion } from 'framer-motion'
 import {
   Eye,
@@ -12,7 +13,7 @@ import {
   Lock,
 } from 'lucide-react'
 import type { SafePaste } from '@/lib/types'
-import { formatBytes, formatRelativeTime } from '@/lib/ui-utils'
+import { formatBytes, formatRelativeTime, languageLabel } from '@/lib/ui-utils'
 import { useAppStore } from '@/lib/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -28,7 +29,27 @@ function visibilityLabel(v: string): string {
   return 'Private'
 }
 
-export function PasteCard({ paste }: { paste: SafePaste }) {
+/** Compact relative time for card footers ("5m", "3h", "2d") — avoids wrapping. */
+function shortAge(iso: string): string {
+  const diff = Math.max(0, Date.now() - new Date(iso).getTime())
+  const m = Math.floor(diff / 60_000)
+  if (m < 1) return 'now'
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h`
+  const d = Math.floor(h / 24)
+  if (d < 30) return `${d}d`
+  const mo = Math.floor(d / 30)
+  if (mo < 12) return `${mo}mo`
+  return `${Math.floor(d / 365)}y`
+}
+
+/**
+ * Clickable paste summary used in Browse, Home, Related and the Dashboard.
+ * `actions` (e.g. Edit/Delete buttons) render in the footer; clicks on them
+ * don't open the paste.
+ */
+export function PasteCard({ paste, actions }: { paste: SafePaste; actions?: React.ReactNode }) {
   const goView = useAppStore((s) => s.goView)
   const isFile = paste.contentType === 'file'
   const title =
@@ -36,24 +57,36 @@ export function PasteCard({ paste }: { paste: SafePaste }) {
     (isFile ? paste.originalFileName || `/${paste.slug}` : `/${paste.slug}`)
   const ownerName = paste.ownerName || 'guest'
   const isGuest = !paste.ownerName
+  // Listings send a short `preview` for unlocked text pastes only.
   const preview =
-    paste.contentType === 'text' && paste.textContent
-      ? paste.textContent.slice(0, 200) +
-        (paste.textContent.length > 200 ? '…' : '')
+    paste.contentType === 'text'
+      ? paste.preview ??
+        (paste.textContent
+          ? paste.textContent.slice(0, 200) + (paste.textContent.length > 200 ? '…' : '')
+          : null)
       : null
 
   function open() {
     goView(paste.slug)
   }
 
+  // A div with role="link" (not a <button>) so the card can contain action buttons.
   return (
-    <motion.button
-      type="button"
+    <motion.div
+      role="link"
+      tabIndex={0}
       onClick={open}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
+      }}
       whileHover={{ y: -2 }}
       transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
       aria-label={`Open paste ${title}`}
-      className="group block w-full cursor-pointer rounded-xl text-left focus-brand"
+      className="group block h-full w-full cursor-pointer rounded-xl text-left focus-brand"
     >
       <div className="surface relative flex h-full flex-col overflow-hidden rounded-xl p-4 transition-colors duration-300 group-hover:border-brand/40">
         {/* Left border accent — bg-border default, bg-brand grows 0→100% from top on hover */}
@@ -92,7 +125,7 @@ export function PasteCard({ paste }: { paste: SafePaste }) {
             </span>
           ) : (
             <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-              {paste.language}
+              {languageLabel(paste.language)}
             </span>
           )}
         </div>
@@ -104,6 +137,14 @@ export function PasteCard({ paste }: { paste: SafePaste }) {
           </p>
         )}
 
+        {/* Locked content placeholder */}
+        {!preview && paste.contentType === 'text' && (paste.hasPassword || paste.burnAfterRead) && (
+          <p className="mt-3 flex items-center gap-1.5 rounded-md bg-muted/30 p-2 font-mono text-[11px] text-muted-foreground/80">
+            {paste.hasPassword ? <Lock className="h-3 w-3" /> : <Flame className="h-3 w-3" />}
+            {paste.hasPassword ? 'Password protected' : 'Burns after reading — open to reveal'}
+          </p>
+        )}
+
         {/* Text preview (text pastes only) */}
         {preview && (
           <pre className="mt-3 max-h-20 overflow-hidden rounded-md bg-muted/30 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground/80">
@@ -111,10 +152,10 @@ export function PasteCard({ paste }: { paste: SafePaste }) {
           </pre>
         )}
 
-        {/* Footer */}
-        <div className="mt-auto flex items-center gap-3 pt-4 font-mono text-[11px] text-muted-foreground">
+        {/* Footer — single line: owner truncates, everything else keeps its width */}
+        <div className="mt-auto flex items-center gap-2.5 whitespace-nowrap pt-4 font-mono text-[11px] text-muted-foreground">
           {/* Owner */}
-          <span className="flex min-w-0 items-center gap-1.5">
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
             <span
               className={[
                 'h-2 w-2 shrink-0 rounded-full',
@@ -124,13 +165,13 @@ export function PasteCard({ paste }: { paste: SafePaste }) {
               ].join(' ')}
               aria-hidden
             />
-            <span className="max-w-[80px] truncate">{ownerName}</span>
+            <span className="truncate">{ownerName}</span>
           </span>
 
           {/* Visibility — icon + tooltip only */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="inline-flex cursor-default">
+              <span className="inline-flex shrink-0 cursor-default">
                 <VisibilityIcon v={paste.visibility} />
               </span>
             </TooltipTrigger>
@@ -140,15 +181,20 @@ export function PasteCard({ paste }: { paste: SafePaste }) {
           </Tooltip>
 
           {/* Views */}
-          <span className="flex items-center gap-1">
+          <span className="flex shrink-0 items-center gap-1" title={`${paste.viewCount} views`}>
             <Eye className="h-3 w-3" /> {paste.viewCount}
           </span>
 
           {/* Time */}
-          <span>{formatRelativeTime(paste.createdAt)}</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="shrink-0 cursor-default">{shortAge(paste.createdAt)}</span>
+            </TooltipTrigger>
+            <TooltipContent side="top">{formatRelativeTime(paste.createdAt)}</TooltipContent>
+          </Tooltip>
 
           {/* Right-aligned badges — icon-only with tooltips */}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {paste.burnAfterRead && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -181,7 +227,17 @@ export function PasteCard({ paste }: { paste: SafePaste }) {
             )}
           </div>
         </div>
+
+        {actions && (
+          <div
+            className="-mx-4 -mb-4 mt-3 flex items-center justify-end gap-1 border-t border-border/60 px-2 py-1.5"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {actions}
+          </div>
+        )}
       </div>
-    </motion.button>
+    </motion.div>
   )
 }

@@ -23,6 +23,7 @@ import {
 import { PasteCard } from '@/components/paste-card'
 import { AdSlot } from '@/components/ad-slot'
 import { api, ApiError } from '@/lib/api-client'
+import { languageLabel } from '@/lib/ui-utils'
 import { useAppStore } from '@/lib/store'
 import type { SafePaste } from '@/lib/types'
 import { toast } from 'sonner'
@@ -159,7 +160,7 @@ export function BrowseView() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search title, content, language, tags…"
                 aria-label="Search pastes"
-                className="field-input h-10 pl-9"
+                className="field-input field-input-plain field-input-icon h-10"
               />
               <div className="field-bar" />
             </div>
@@ -172,7 +173,7 @@ export function BrowseView() {
                 if (v) setScope(v as Scope)
               }}
               aria-label="Browse scope"
-              className="flex items-center gap-1.5"
+              className="flex w-full items-center gap-1.5 md:w-auto"
             >
               {SCOPE_OPTIONS.map((opt) => {
                 const active = scope === opt.value
@@ -181,7 +182,7 @@ export function BrowseView() {
                     key={opt.value}
                     value={opt.value}
                     aria-label={opt.label}
-                    className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors data-[state=off]:border-border data-[state=off]:text-muted-foreground ${
+                    className={`flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border px-3 text-sm transition-colors data-[state=off]:border-border data-[state=off]:text-muted-foreground md:flex-none ${
                       active
                         ? 'border-brand bg-brand/10 text-foreground'
                         : 'hover:text-foreground'
@@ -211,7 +212,7 @@ export function BrowseView() {
                     ) : (
                       languages.map((l) => (
                         <SelectItem key={l.language} value={l.language}>
-                          {l.language} ({l.count})
+                          {languageLabel(l.language)} ({l.count})
                         </SelectItem>
                       ))
                     )}
@@ -290,7 +291,7 @@ export function BrowseView() {
                 className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
               >
                 {pastes.map((p) => (
-                  <Reveal key={p.id} variant={fadeUp}>
+                  <Reveal key={p.id} variant={fadeUp} className="h-full">
                     <PasteCard paste={p} />
                   </Reveal>
                 ))}
@@ -350,7 +351,7 @@ export function BrowseView() {
                               : 'cursor-pointer hover:bg-surface-3'
                           }`}
                         >
-                          <span className="truncate font-mono">{l.language}</span>
+                          <span className="truncate">{languageLabel(l.language)}</span>
                           <span className="ml-2 shrink-0 rounded bg-muted px-1.5 text-xs text-muted-foreground">
                             {l.count}
                           </span>

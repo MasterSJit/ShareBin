@@ -39,7 +39,7 @@ export function AdSlot({
     api
       .listAds(slot)
       .then((rows) => {
-        if (alive) setAds(rows)
+        if (alive) setAds(rows as PublicAd[])
       })
       .catch(() => {
         /* Ads are best-effort — never surface errors to the user. */
@@ -62,16 +62,13 @@ export function AdSlot({
 
 function AdCard({ ad }: { ad: PublicAd }) {
   function handleClick() {
-    // Fire-and-forget click increment.
+    // Fire-and-forget click increment. Only the link itself records a click
+    // (the wrapper used to as well, so every click counted twice).
     api.adClick(ad.id).catch(() => {})
   }
 
   return (
-    <div
-      className="surface overflow-hidden rounded-xl p-4"
-      onClick={handleClick}
-      role="presentation"
-    >
+    <div className="surface overflow-hidden rounded-xl p-4">
       <div className="mb-2 flex items-center justify-between">
         <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
           Sponsored

@@ -10,7 +10,7 @@ export function Footer() {
   const { settings } = usePublicSettings()
   return (
     <footer className="mt-auto border-t border-border/60 bg-background/60 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-4 py-5 text-sm text-muted-foreground sm:flex-row sm:px-6">
+      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-4 py-5 text-sm text-muted-foreground sm:flex-row sm:px-6">
         <div className="flex items-center gap-2">
           {settings.logoUrl && settings.logoUrl !== '/logo.svg' ? (
             <img src={settings.logoUrl} alt={settings.siteName} className="h-5 w-5 rounded object-contain" />

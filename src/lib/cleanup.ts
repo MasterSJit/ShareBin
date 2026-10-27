@@ -1,17 +1,22 @@
 import { db } from '@/lib/db'
 import { getStorage } from '@/lib/storage'
-import { isExpired } from '@/lib/paste-utils'
-import { invalidatePaste } from '@/lib/paste-access'
+import { auditLog } from '@/lib/paste-utils'
+import { invalidatePasteRecord } from '@/lib/paste-access'
+
+export type DeleteReason = 'expired' | 'burned' | 'admin' | 'owner'
 
 /**
  * Hard-delete a single paste: remove the storage file (if file type),
  * delete the DB record, and write an audit-log entry.
  * Returns true if a paste was deleted.
+ *
+ * `actorId` is the user who triggered the delete; system deletions
+ * (expired/burned) are logged with a null actor.
  */
 export async function hardDeletePaste(
   pasteId: string,
-  reason: 'expired' | 'burned' | 'admin',
-  adminId?: string
+  reason: DeleteReason,
+  actorId?: string
 ): Promise<boolean> {
   const paste = await db.paste.findUnique({ where: { id: pasteId } })
   if (!paste) return false
@@ -25,63 +30,49 @@ export async function hardDeletePaste(
     }
   }
 
-  // Delete access grants
+  // Access grants cascade, but deleteMany keeps this explicit for older DBs.
   await db.pasteAccessGrant.deleteMany({ where: { pasteId } })
+  // deleteMany avoids a P2025 throw when two requests race to delete.
+  const { count } = await db.paste.deleteMany({ where: { id: pasteId } })
+  invalidatePasteRecord(paste)
+  if (count === 0) return false
 
-  // Delete the paste record
-  await db.paste.delete({ where: { id: pasteId } })
-
-  // Invalidate caches
-  invalidatePaste(paste.slug)
-  invalidatePaste(paste.id)
   if (paste.ownerId) {
-    const { invalidateUserPastes } = await import('@/lib/paste-access')
-    invalidateUserPastes(paste.ownerId)
+    const { recomputeUsage } = await import('@/lib/rbac')
+    await recomputeUsage(paste.ownerId).catch(() => {})
   }
 
-  // Write an audit log entry
-  if (reason === 'admin' && adminId) {
-    await db.auditLog.create({
-      data: {
-        adminId,
-        action: 'delete_paste',
-        targetType: 'paste',
-        targetId: pasteId,
-        metadata: JSON.stringify({
-          slug: paste.slug,
-          title: paste.title,
-          contentType: paste.contentType,
-          reason,
-        }),
-      },
-    })
-  } else {
-    // System-initiated deletion (expired/burned) — log with a system admin ID.
-    // Find any admin user to attribute the log to.
-    const admin = await db.user.findFirst({ where: { role: 'admin' }, select: { id: true } })
-    if (admin) {
-      await db.auditLog.create({
-        data: {
-          adminId: admin.id,
-          action: `auto_delete_${reason}`,
-          targetType: 'paste',
-          targetId: pasteId,
-          metadata: JSON.stringify({
-            slug: paste.slug,
-            title: paste.title,
-            contentType: paste.contentType,
-            language: paste.language,
-            viewCount: paste.viewCount,
-            reason,
-            expiredAt: paste.expiresAt ? paste.expiresAt.toISOString() : null,
-            burned: paste.isBurned,
-          }),
-        },
-      })
-    }
-  }
+  const isUserAction = reason === 'admin' || reason === 'owner'
+  await auditLog(
+    isUserAction ? actorId ?? null : null,
+    isUserAction ? (reason === 'owner' ? 'delete_own_paste' : 'delete_paste') : `auto_delete_${reason}`,
+    'paste',
+    pasteId,
+    {
+      slug: paste.slug,
+      title: paste.title,
+      contentType: paste.contentType,
+      language: paste.language,
+      viewCount: paste.viewCount,
+      reason,
+      expiredAt: paste.expiresAt ? paste.expiresAt.toISOString() : null,
+      burned: paste.isBurned,
+    },
+  ).catch(() => {})
 
   return true
+}
+
+/** Hard-delete every paste (and stored file) owned by a user. */
+export async function hardDeleteUserPastes(userId: string, actorId?: string): Promise<number> {
+  const pastes = await db.paste.findMany({ where: { ownerId: userId }, select: { id: true } })
+  let count = 0
+  for (const p of pastes) {
+    if (await hardDeletePaste(p.id, actorId && actorId !== userId ? 'admin' : 'owner', actorId ?? userId)) {
+      count++
+    }
+  }
+  return count
 }
 
 /**
@@ -118,7 +109,6 @@ export async function cleanupBurnedPastes(graceMinutes = 2): Promise<number> {
   const burned = await db.paste.findMany({
     where: {
       isBurned: true,
-      isDeleted: false,
       updatedAt: { lt: cutoff },
     },
     select: { id: true },
@@ -133,12 +123,33 @@ export async function cleanupBurnedPastes(graceMinutes = 2): Promise<number> {
   return count
 }
 
+/** Remove expired password-reset tokens. */
+export async function cleanupResetTokens(): Promise<number> {
+  const { count } = await db.passwordResetToken.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  })
+  return count
+}
+
+let lastOpportunisticRun = 0
+
 /**
- * Run the full cleanup: expired + burned pastes.
+ * Run the full cleanup: expired + burned pastes + stale reset tokens.
  * Returns a summary of what was cleaned.
  */
-export async function runCleanup(): Promise<{ expired: number; burned: number }> {
+export async function runCleanup(): Promise<{ expired: number; burned: number; resetTokens: number }> {
+  lastOpportunisticRun = Date.now()
   const expired = await cleanupExpiredPastes()
   const burned = await cleanupBurnedPastes()
-  return { expired, burned }
+  const resetTokens = await cleanupResetTokens()
+  return { expired, burned, resetTokens }
+}
+
+/**
+ * Fire-and-forget cleanup from request handlers, throttled to once a minute
+ * so busy listing endpoints don't scan the table on every request.
+ */
+export function maybeRunCleanup() {
+  if (Date.now() - lastOpportunisticRun < 60_000) return
+  runCleanup().catch(() => {})
 }

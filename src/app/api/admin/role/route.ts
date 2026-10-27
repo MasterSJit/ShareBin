@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { ok, created, badRequest, unauthorized, forbidden, notFound, serverError } from '@/lib/api-response'
 import { getSession } from '@/lib/auth'
 import { hasPermission } from '@/lib/rbac'
+import { cacheDelPrefix } from '@/lib/cache'
 import { auditLog } from '@/lib/paste-utils'
 import { parseJsonBody } from '@/lib/parse-body'
 
@@ -90,6 +91,9 @@ export async function PATCH(req: NextRequest) {
 
   const patch: Record<string, unknown> = {}
   if (body.name && body.name !== role.name) {
+    // Authorisation checks compare against the names `admin`/`user`, so
+    // renaming a system role would silently lock people out.
+    if (role.isSystem) return badRequest('System roles cannot be renamed')
     const clash = await db.role.findUnique({ where: { name: body.name } })
     if (clash) return badRequest('Role name already exists')
     patch.name = body.name
@@ -97,14 +101,20 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.description === 'string') patch.description = body.description || null
   if (typeof body.color === 'string') patch.color = body.color
 
-  const updated = await db.role.update({ where: { id: body.id }, data: patch })
+  const roleId = body.id
+  const updated = await db.role.update({ where: { id: roleId }, data: patch })
+  // User.role is a denormalised copy of the role name — keep it in sync.
+  if (patch.name) {
+    await db.user.updateMany({ where: { roleId }, data: { role: updated.name } })
+    cacheDelPrefix('user:')
+  }
 
   // Sync permissions if provided
   if (body.permissionIds !== undefined) {
-    await db.rolePermission.deleteMany({ where: { roleId: body.id } })
+    await db.rolePermission.deleteMany({ where: { roleId } })
     if (body.permissionIds.length) {
       await db.rolePermission.createMany({
-        data: body.permissionIds.map((pid) => ({ roleId: body.id, permissionId: pid })),
+        data: [...new Set(body.permissionIds)].map((pid) => ({ roleId, permissionId: pid })),
       })
     }
   }
@@ -126,8 +136,10 @@ export async function DELETE(req: NextRequest) {
   if (!role) return notFound('Role not found')
   if (role.isSystem) return badRequest('System roles cannot be deleted')
 
-  // Unassign users from this role
-  await db.user.updateMany({ where: { roleId: body.id }, data: { roleId: null } })
+  // Move users on this role back to the default "user" role
+  const userRole = await db.role.findUnique({ where: { name: 'user' }, select: { id: true } })
+  await db.user.updateMany({ where: { roleId: body.id }, data: { roleId: userRole?.id ?? null, role: 'user' } })
+  cacheDelPrefix('user:')
   await db.role.delete({ where: { id: body.id } })
 
   await auditLog(session.userId, 'delete_role', 'role', body.id, { name: role.name })

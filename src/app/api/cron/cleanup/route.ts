@@ -1,14 +1,15 @@
 import { NextRequest } from 'next/server'
 import { ok, serverError } from '@/lib/api-response'
 import { runCleanup } from '@/lib/cleanup'
+import { checkCronAuth } from '@/lib/cron-auth'
 
 /**
- * POST /api/cron/cleanup — hard-delete all expired + burned pastes.
- * Can be called by a cron scheduler or manually.
- * No auth required (the endpoint path is the secret) — but accepts an
- * optional `?key=` query for an extra layer if desired.
+ * POST /api/cron/cleanup — hard-delete all expired + burned pastes and
+ * expired password-reset tokens. Protected by CRON_SECRET when set.
  */
 export async function POST(req: NextRequest) {
+  const denied = checkCronAuth(req)
+  if (denied) return denied
   try {
     const result = await runCleanup()
     return ok('Cleanup completed', [result])

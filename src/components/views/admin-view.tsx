@@ -473,13 +473,15 @@ function AdminInner() {
         orientation="vertical"
         className="flex flex-col gap-6 lg:flex-row"
       >
-        <Reveal variant={fadeUp} delay={0.05}>
-          <TabsList className="grid h-fit w-full grid-cols-3 gap-1 rounded-xl bg-transparent p-0 sm:grid-cols-5 lg:flex lg:w-56 lg:flex-col lg:grid-cols-1">
+        <Reveal variant={fadeUp} delay={0.05} className="lg:sticky lg:top-20 lg:self-start">
+          <TabsList className="grid h-fit w-full grid-cols-2 gap-1 rounded-xl bg-transparent p-0 min-[480px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:flex lg:w-52 lg:flex-col lg:items-stretch lg:justify-start">
             {TABS.map((t) => (
               <TabsTrigger
                 key={t.value}
                 value={t.value}
-                className="font-mono flex items-center justify-start gap-2 rounded-md border-b-2 border-transparent px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:border-l-2 data-[state=active]:border-b-transparent data-[state=active]:border-l-brand data-[state=active]:bg-brand/10 data-[state=active]:text-brand data-[state=active]:shadow-none lg:border-b-0 lg:border-l-2"
+                // Active state = tinted background + inset brand bar on the left;
+                // borders are cancelled (shadcn adds a box border in dark mode).
+                className="font-mono flex h-auto w-full flex-none items-center justify-start gap-2 rounded-md border-0 px-3 py-2 text-[11px] uppercase tracking-wider text-muted-foreground shadow-none transition-colors hover:bg-surface-3/60 hover:text-foreground data-[state=active]:bg-brand/10 data-[state=active]:text-brand data-[state=active]:shadow-[inset_2px_0_0_var(--brand)] dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-brand/10 dark:data-[state=active]:text-brand"
               >
                 {t.icon}
                 <span>{t.label}</span>

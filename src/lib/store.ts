@@ -11,6 +11,16 @@ export type View =
   | { name: 'admin' }
   | { name: 'login' }
   | { name: 'register' }
+  | { name: 'reset'; token: string }
+
+/** Pre-filled content for the create form (used by "Clone"). */
+export type PasteDraft = {
+  title: string
+  description: string
+  tags: string
+  language: string
+  textContent: string
+}
 
 /* ------------------------------------------------------------------ */
 /*  Hash-based routing                                                 */
@@ -21,6 +31,7 @@ export type View =
 /*          #/admin      → admin                                       */
 /*          #/login      → login                                       */
 /*          #/register   → register                                    */
+/*          #/reset?token=<t> → password reset (link from email)       */
 /* ------------------------------------------------------------------ */
 
 export function viewToHash(v: View): string {
@@ -39,6 +50,8 @@ export function viewToHash(v: View): string {
       return '#/login'
     case 'register':
       return '#/register'
+    case 'reset':
+      return `#/reset?token=${encodeURIComponent(v.token)}`
   }
 }
 
@@ -50,9 +63,14 @@ export function hashToView(hash: string): View {
   if (h === 'admin') return { name: 'admin' }
   if (h === 'login') return { name: 'login' }
   if (h === 'register') return { name: 'register' }
+  if (h.startsWith('reset')) {
+    const token = new URLSearchParams(h.split('?')[1] || '').get('token') || ''
+    return { name: 'reset', token }
+  }
   if (h.startsWith('p/')) {
-    const id = h.slice(2)
-    if (id) return { name: 'view', idOrSlug: id }
+    // tolerate trailing slashes / query strings on shared links
+    const id = h.slice(2).split(/[/?#]/)[0]
+    if (id) return { name: 'view', idOrSlug: decodeURIComponent(id) }
   }
   return { name: 'home' }
 }
@@ -81,6 +99,12 @@ type AppState = {
   setUser: (u: SafeUser | null) => void
   loadingUser: boolean
   setLoadingUser: (b: boolean) => void
+
+  /** Draft to pre-fill the create form with; consumed by HomeView. */
+  draft: PasteDraft | null
+  /** Open the create form pre-filled with a copy of a paste. */
+  cloneToNew: (d: PasteDraft) => void
+  takeDraft: () => PasteDraft | null
 }
 
 /** Recompute canGoBack from the live history API (history.length is imperfect
@@ -126,6 +150,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   setUser: (u) => set({ user: u }),
   loadingUser: true,
   setLoadingUser: (b) => set({ loadingUser: b }),
+
+  draft: null,
+  cloneToNew: (d) => {
+    set({ draft: d })
+    get().setView({ name: 'home' })
+  },
+  takeDraft: () => {
+    const d = get().draft
+    if (d) set({ draft: null })
+    return d
+  },
 }))
 
 /* ------------------------------------------------------------------ */

@@ -1,12 +1,12 @@
-# PasteShare — Setup Guide
+# ShareBin — Setup Guide
 
-This document walks you through setting up PasteShare from scratch — installation, database configuration, seeding, and initial admin access.
+This document walks you through setting up ShareBin (formerly PasteShare) from scratch — installation, database configuration, seeding, and initial admin access. For production hosting see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Prerequisites
 
 | Requirement | Version | Notes |
 |---|---|---|
-| Node.js | 18+ | Or [Bun](https://bun.sh) 1.0+ (recommended) |
+| Node.js | 20+ | Or [Bun](https://bun.sh) 1.x (recommended) |
 | OS | Linux / macOS / Windows | SQLite is bundled — no separate DB server needed |
 | Git | Any | To clone the repository |
 
@@ -41,38 +41,27 @@ This installs:
 
 ## Step 2: Environment Variables
 
-Create a `.env` file in the project root:
+Copy the template and edit it:
 
-```env
-# Database (SQLite — file path relative to project root)
-DATABASE_URL="file:./db/custom.db"
-
-# Session secret — MUST be at least 32 characters.
-# Generate one with: openssl rand -hex 32
-SESSION_SECRET="change-me-to-a-long-random-string-at-least-32-chars"
-
-# Storage root for uploaded files (optional, defaults to ./storage)
-STORAGE_LOCAL_ROOT="./storage"
+```bash
+cp .env.example .env
 ```
 
-### Production Environment Variables
+At minimum set `SESSION_SECRET` (32+ random characters):
 
-For production deployment, also set:
-
-```env
-NODE_ENV="production"
-# If using S3 storage (optional — local is default):
-S3_BUCKET=""
-S3_REGION=""
-S3_ACCESS_KEY=""
-S3_SECRET_KEY=""
-# If using SMTP for email (optional — sandbox auto-verifies):
-SMTP_HOST=""
-SMTP_PORT=""
-SMTP_USER=""
-SMTP_PASS=""
-APP_URL="https://your-domain.com"
+```bash
+openssl rand -hex 32
 ```
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | SQLite file. Relative paths resolve from `prisma/`, so `file:./db/custom.db` means `prisma/db/custom.db` |
+| `SESSION_SECRET` | Signs sessions and paste unlock tokens (required in production) |
+| `STORAGE_LOCAL_ROOT` | Upload directory (default `./storage`) |
+| `APP_URL` | Public URL for share links (optional) |
+| `CRON_SECRET` | Protects `/api/cron/*` (recommended in production) |
+
+The full list, with explanations, is in [.env.example](.env.example).
 
 ## Step 3: Database Setup
 
@@ -84,18 +73,18 @@ PasteShare uses Prisma ORM with SQLite. The schema is in `prisma/schema.prisma`.
 bun run db:push
 ```
 
-This creates the SQLite database file at `db/custom.db` and syncs all tables.
+This creates the SQLite database (by default `prisma/db/custom.db` — Prisma resolves relative SQLite paths from the `prisma/` folder) and syncs all tables. Re-run it after every upgrade; it applies additive schema changes in place.
 
 ### Verify the database
 
 ```bash
 # Open the SQLite shell to inspect tables
-sqlite3 db/custom.db ".tables"
+sqlite3 prisma/db/custom.db ".tables"
 ```
 
 You should see:
 ```
-Ad  AuditLog  Invoice  Paste  PasteAccessGrant  Payment  Permission  Plan  Role  RolePermission  SiteSetting  Subscription  UsageRecord  User
+Ad  AuditLog  Invoice  Paste  PasteAccessGrant  PasswordResetToken  Payment  Permission  Plan  Role  RolePermission  SiteSetting  Subscription  UsageRecord  User
 ```
 
 ## Step 4: Seed the Database
@@ -108,7 +97,7 @@ The seed script creates:
 - Default site settings (siteName, SEO, captcha, ads, etc.)
 
 ```bash
-bun run prisma/seed.ts
+bun run db:seed
 ```
 
 Expected output:
@@ -136,7 +125,7 @@ The app will be available at `http://localhost:3000`.
 
 1. Open `http://localhost:3000` in your browser
 2. Click **"Log in"** in the header
-3. Click the **"Fill"** button (auto-fills demo credentials)
+3. Click the **"Fill"** button (auto-fills demo credentials — shown in development only)
 4. Click **"Log in"** — you should see "Dashboard" and "Admin" in the header
 5. Click **"Admin"** to access the admin panel
 
@@ -173,6 +162,13 @@ After logging in as admin, configure the site:
 3. Set rate limits and CORS origins
 4. Generate an API key for external use
 
+### 6.6 Uploads & spam rules
+1. **Admin → Settings → Storage**: max file size, allowed file types (`*`, `image/*`, `application/pdf`, `.zip`, …), banned extensions
+2. Banned words and spam scanning live in the same tab. Leave *strict scanning* off for a code-sharing site — it rejects legitimate code that mentions `<script>`, SQL keywords, `exec(` and similar
+
+### 6.7 Change the admin password
+Dashboard → **Change password**. Do this before exposing the site.
+
 ## Step 7: Create Additional Admin Users (optional)
 
 1. Go to **Admin → Users**
@@ -203,38 +199,20 @@ To assign a plan to a user:
 
 ## Step 9: Set Up Cron Jobs (production)
 
-PasteShare has two background jobs that should run on a schedule:
-
-### Using crontab (Linux/macOS)
+Two maintenance endpoints should run on a schedule. Set `CRON_SECRET` in `.env` and send it with each call:
 
 ```bash
-# Edit crontab
 crontab -e
-
-# Add these lines:
-# Run cleanup every 10 minutes (hard-deletes expired/burned pastes)
-*/10 * * * * curl -s -X POST https://your-domain.com/api/cron/cleanup > /dev/null
-
-# Run subscription maintenance daily at midnight
-0 0 * * * curl -s -X POST https://your-domain.com/api/cron/subscriptions > /dev/null
 ```
 
-### Using a process manager (PM2 / systemd)
-
-Create a script that calls the endpoints on a schedule. Example with `node-cron`:
-
-```js
-import cron from 'node-cron'
-import fetch from 'node-fetch'
-
-cron.schedule('*/10 * * * *', () => {
-  fetch('https://your-domain.com/api/cron/cleanup', { method: 'POST' })
-})
-
-cron.schedule('0 0 * * *', () => {
-  fetch('https://your-domain.com/api/cron/subscriptions', { method: 'POST' })
-})
+```cron
+# Remove expired / burned pastes every 10 minutes
+*/10 * * * * curl -fsS -X POST -H "Authorization: Bearer YOUR_CRON_SECRET" https://your-domain.com/api/cron/cleanup > /dev/null
+# Subscription maintenance daily
+0 3 * * * curl -fsS -X POST -H "Authorization: Bearer YOUR_CRON_SECRET" https://your-domain.com/api/cron/subscriptions > /dev/null
 ```
+
+Without `CRON_SECRET` the endpoints stay open (they only delete already-expired data).
 
 ## Step 10: Production Build (optional)
 
@@ -246,7 +224,7 @@ bun run build
 bun run start
 ```
 
-**Note**: In the sandbox environment, use `bun run dev` only. Do not run `bun run build`.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for reverse proxy, process manager, health check and backup instructions.
 
 ## Troubleshooting
 
@@ -275,14 +253,14 @@ fuser -k 3000/tcp
 If you want to start fresh:
 
 ```bash
-# Delete the database file
-rm db/custom.db
+# Delete the database file (destroys all data!)
+rm prisma/db/custom.db
 
 # Re-push the schema
 bun run db:push
 
 # Re-seed
-bun run prisma/seed.ts
+bun run db:seed
 ```
 
 ### Storage permissions
@@ -293,6 +271,14 @@ If file uploads fail, ensure the storage directory is writable:
 mkdir -p storage
 chmod 755 storage
 ```
+
+### Styles don't update in development / "inferred your workspace root" warning
+
+A lockfile outside the project (for example `~/package-lock.json`) makes Next.js treat a parent folder as the project root, and the dev server can then keep serving cached CSS. Remove the stray lockfile, or stop the dev server and delete the `.next/dev` folder.
+
+### Password reset emails
+
+No mail library is bundled. In development the reset token is shown on screen. For production, plug a mailer into `src/lib/mailer.ts` (instructions in the file); until then admins can set a new password from **Admin → Users**.
 
 ### Monaco editor not loading
 
@@ -312,6 +298,8 @@ After setup, verify these work:
 - [ ] You can create a user from Admin → Users → Add User
 - [ ] API docs are accessible at `http://localhost:3000/api/docs`
 - [ ] Cron cleanup works: `curl -X POST http://localhost:3000/api/cron/cleanup`
+- [ ] Health check: `curl http://localhost:3000/api/health` returns `{"status":"ok",…}`
+- [ ] A burn-after-read paste shows the share dialog, and opening the link shows the "self-destruct" confirmation
 
 ## Next Steps
 
