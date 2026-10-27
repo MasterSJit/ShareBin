@@ -121,6 +121,9 @@ export const api = {
   // Languages
   listLanguages: () => request<{ language: string; count: number }>('GET', '/api/languages'),
 
+  // Public site settings (non-sensitive)
+  getSettings: () => request<Record<string, unknown>>('GET', '/api/settings'),
+
   // My plan & limits
   myLimits: () =>
     request<{
@@ -160,7 +163,7 @@ export const api = {
     },
     createUser: (body: { email: string; password: string; displayName?: string; role?: string; roleId?: string; status?: string; autoVerify?: boolean }) =>
       request<SafeUser>('PUT', `/api/admin/user`, { body }),
-    updateUser: (id: string, patch: { status?: string; role?: string; roleId?: string; displayName?: string; email?: string; password?: string; verify?: boolean; regenerateApiKey?: boolean }) =>
+    updateUser: (id: string, patch: { status?: string; role?: string; roleId?: string | null; displayName?: string; email?: string; password?: string; verify?: boolean; regenerateApiKey?: boolean }) =>
       request<SafeUser>('PATCH', `/api/admin/user`, { body: { id, ...patch } }),
     deleteUser: (id: string) =>
       request<unknown>('DELETE', `/api/admin/user`, { body: { id } }),

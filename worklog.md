@@ -1106,3 +1106,29 @@ Stage Summary:
 - Both user requests fully implemented and verified:
   1. ✅ API settings tab — full API configuration, documentation, key management, code examples
   2. ✅ User CRUD — create (Add User), edit (full dialog with all fields), delete, plus existing suspend/ban/promote/demote
+
+---
+Task ID: 19
+Agent: orchestrator (main)
+Task: Fix role dropdown to show all RBAC roles + dynamic site settings
+
+Work Log:
+- **Role dropdown shows all RBAC roles**:
+  - Backend: Updated `/api/admin/user` PUT (create) to resolve `roleId` → role name from the Role table (not just "admin"/"user"). Updated PATCH to accept `roleId` and resolve the role name + id from the Role table, supporting any custom role.
+  - Frontend: `UserDialog` now fetches all roles via `api.admin.listRoles()` when the dialog opens. The Role `<Select>` shows all roles (admin, moderator, user, + any custom roles) with "(system)" labels. Uses `roleId` (not the hardcoded "admin"/"user" string) when creating/updating users.
+  - `RoleBadge` updated to show custom role names (not just admin/user). Shows moderator in amber, custom roles in coral.
+  - Verified: Created a user with "moderator" role → "User created" toast → table shows "moderator" badge.
+- **Dynamic site settings**:
+  - Created `GET /api/settings` — public endpoint returning non-sensitive settings (siteName, tagline, logoUrl, faviconUrl, SEO, socialLinks, captcha, ads, guestPosting).
+  - Created `src/hooks/use-public-settings.ts` using `useSyncExternalStore` for instant updates across all components. `invalidateSettings()` clears cache + re-fetches + notifies all subscribers.
+  - Updated `Header` to use `usePublicSettings()` — site name and logo now dynamic (custom logo image if logoUrl is set, otherwise default gradient icon).
+  - Updated `Footer` to use `usePublicSettings()` — site name, tagline, and social links now dynamic.
+  - Updated `page.tsx` to set `document.title` and favicon dynamically from settings via `useEffect`.
+  - Admin Settings tab calls `invalidateSettings()` after save → header/footer/title update instantly without page reload.
+  - Verified: Changed siteName from "PasteShare" → "CodeBin" → saved → header immediately showed "CodeBin". Changed back → header immediately showed "PasteShare".
+- Lint: 0 errors. Zero console errors.
+
+Stage Summary:
+- Both user requests fully implemented and verified:
+  1. ✅ Role dropdown shows ALL RBAC roles (admin, moderator, user, + custom) — not just admin/user
+  2. ✅ Site name and settings are dynamic — changing in admin instantly updates header, footer, title, favicon

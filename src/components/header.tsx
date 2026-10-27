@@ -31,6 +31,7 @@ import { useTheme } from 'next-themes'
 import { toast } from 'sonner'
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { usePublicSettings } from '@/hooks/use-public-settings'
 
 export function Header() {
   const {
@@ -48,6 +49,7 @@ export function Header() {
     canGoBack,
   } = useAppStore()
   const { theme, setTheme } = useTheme()
+  const { settings } = usePublicSettings()
   const [mounted, setMounted] = useState(false)
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), [])
@@ -121,11 +123,17 @@ export function Header() {
           whileTap={{ scale: 0.97 }}
           className="group flex items-center gap-2 font-bold"
         >
-          <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-brand-foreground shadow-lg shadow-brand/30">
-            <FileCode className="h-4 w-4" />
-          </div>
+          {settings.logoUrl && settings.logoUrl !== '/logo.svg' ? (
+            // Custom logo image
+            <img src={settings.logoUrl} alt={settings.siteName} className="h-8 w-8 rounded-lg object-contain" />
+          ) : (
+            // Default logo (gradient square with FileCode icon)
+            <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-brand text-brand-foreground shadow-lg shadow-brand/30">
+              <FileCode className="h-4 w-4" />
+            </div>
+          )}
           <span className="hidden text-base tracking-tight sm:inline">
-            Paste<span className="text-brand">Share</span>
+            {settings.siteName}
           </span>
         </motion.button>
 

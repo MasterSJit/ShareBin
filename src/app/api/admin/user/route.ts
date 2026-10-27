@@ -97,13 +97,34 @@ export async function PUT(req: NextRequest) {
   if (existing) return conflict('Email already registered')
 
   const hash = await hashPassword(password)
+
+  // Resolve role: if roleId provided, look up the role name; if role name provided, use it directly.
+  let resolvedRole = 'user'
+  let resolvedRoleId: string | null = null
+  if (body.roleId) {
+    const roleRec = await db.role.findUnique({ where: { id: body.roleId } })
+    if (roleRec) {
+      resolvedRole = roleRec.name
+      resolvedRoleId = roleRec.id
+    }
+  } else if (body.role) {
+    // Try to find by name
+    const roleRec = await db.role.findUnique({ where: { name: body.role } })
+    if (roleRec) {
+      resolvedRole = roleRec.name
+      resolvedRoleId = roleRec.id
+    } else {
+      resolvedRole = body.role
+    }
+  }
+
   const user = await db.user.create({
     data: {
       email,
       passwordHash: hash,
       displayName: body.displayName?.trim().slice(0, 100) || null,
-      role: body.role === 'admin' ? 'admin' : 'user',
-      roleId: body.roleId || null,
+      role: resolvedRole,
+      roleId: resolvedRoleId,
       status: body.status || 'active',
       emailVerifiedAt: body.autoVerify !== false ? new Date() : null,
     },
@@ -144,14 +165,33 @@ export async function PATCH(req: NextRequest) {
   if (body.status && ['pending_verification', 'active', 'suspended', 'banned'].includes(body.status)) {
     patch.status = body.status
   }
-  if (body.role && ['user', 'admin'].includes(body.role)) {
+  // Role: accept any role name that exists in the Role table. Also resolve roleId.
+  if (body.roleId !== undefined) {
     if (target.id === session.userId) {
       return badRequest('Cannot change your own role')
     }
-    patch.role = body.role
-  }
-  if (typeof body.roleId === 'string') {
-    patch.roleId = body.roleId || null
+    if (body.roleId === '' || body.roleId === null) {
+      patch.roleId = null
+      patch.role = 'user'
+    } else {
+      const roleRec = await db.role.findUnique({ where: { id: body.roleId } })
+      if (!roleRec) return badRequest('Role not found')
+      patch.roleId = roleRec.id
+      patch.role = roleRec.name
+    }
+  } else if (body.role && body.role !== target.role) {
+    if (target.id === session.userId) {
+      return badRequest('Cannot change your own role')
+    }
+    // Look up the role by name to get its id
+    const roleRec = await db.role.findUnique({ where: { name: body.role } })
+    if (roleRec) {
+      patch.role = roleRec.name
+      patch.roleId = roleRec.id
+    } else {
+      // Allow custom role names even if not in the Role table
+      patch.role = body.role
+    }
   }
   if (typeof body.displayName === 'string') {
     patch.displayName = body.displayName.trim().slice(0, 100) || null

@@ -120,6 +120,7 @@ import {
   staggerContainer,
 } from '@/components/motion-helpers'
 import type { SafeAuditLog, SafePaste, SafeUser } from '@/lib/types'
+import { invalidateSettings } from '@/hooks/use-public-settings'
 
 type Analytics = {
   totalUsers: number
@@ -1294,16 +1295,29 @@ function UsersTab() {
   )
 }
 
-function RoleBadge({ role }: { role: SafeUser['role'] }) {
+function RoleBadge({ role }: { role: string }) {
   if (role === 'admin')
     return (
       <span className="inline-flex items-center gap-1 rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand">
         <Shield className="h-2.5 w-2.5" /> admin
       </span>
     )
+  if (role === 'moderator')
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
+        <Shield className="h-2.5 w-2.5" /> moderator
+      </span>
+    )
+  if (role === 'user')
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+        user
+      </span>
+    )
+  // Custom role
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-      user
+    <span className="inline-flex items-center gap-1 rounded-md bg-brand-2/15 px-1.5 py-0.5 text-[10px] font-medium text-brand-2">
+      <Shield className="h-2.5 w-2.5" /> {role}
     </span>
   )
 }
@@ -2185,6 +2199,7 @@ function SettingsTab() {
     setSaving(true)
     try {
       await api.admin.updateSettings(settings as Record<string, unknown>)
+      invalidateSettings() // Clear the public settings cache so header/footer update
       toast.success('Settings saved')
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Save failed.')
@@ -6212,12 +6227,21 @@ function UserDialog({
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
-  const [role, setRole] = useState<'user' | 'admin'>('user')
+  const [roleId, setRoleId] = useState<string>('')
+  const [allRoles, setAllRoles] = useState<{ id: string; name: string; description: string | null; isSystem: boolean }[]>([])
   const [status, setStatus] = useState<
     'active' | 'suspended' | 'banned' | 'pending_verification'
   >('active')
   const [autoVerify, setAutoVerify] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  // Fetch all RBAC roles when the dialog opens
+  useEffect(() => {
+    if (!open) return
+    api.admin.listRoles().then((roles) => {
+      setAllRoles(roles.map((r) => ({ id: r.id, name: r.name, description: r.description, isSystem: r.isSystem })))
+    }).catch(() => { /* ignore */ })
+  }, [open])
 
   // Reset the form whenever the dialog opens.
   useEffect(() => {
@@ -6225,7 +6249,8 @@ function UserDialog({
     if (editingUser) {
       setEmail(editingUser.email)
       setDisplayName(editingUser.displayName ?? '')
-      setRole(editingUser.role === 'admin' ? 'admin' : 'user')
+      // Find the roleId that matches the user's role name
+      setRoleId('') // will be set after roles load
       setStatus(editingUser.status)
       setPassword('')
       setAutoVerify(true)
@@ -6233,11 +6258,19 @@ function UserDialog({
       setEmail('')
       setPassword('')
       setDisplayName('')
-      setRole('user')
+      setRoleId('')
       setStatus('active')
       setAutoVerify(true)
     }
   }, [open, editingUser])
+
+  // When roles load, set the roleId from the editing user's role name
+  useEffect(() => {
+    if (open && editingUser && allRoles.length > 0) {
+      const match = allRoles.find((r) => r.name === editingUser.role)
+      setRoleId(match ? match.id : '')
+    }
+  }, [open, editingUser, allRoles])
 
   async function save() {
     const trimmedEmail = email.trim()
@@ -6259,13 +6292,13 @@ function UserDialog({
         const patch: {
           email: string
           displayName: string
-          role: 'user' | 'admin'
+          roleId: string | null
           status: 'active' | 'suspended' | 'banned' | 'pending_verification'
           password?: string
         } = {
           email: trimmedEmail,
           displayName: displayName.trim(),
-          role,
+          roleId: roleId || null,
           status,
         }
         if (password) patch.password = password
@@ -6276,7 +6309,7 @@ function UserDialog({
           email: trimmedEmail,
           password,
           displayName: displayName.trim() || undefined,
-          role,
+          roleId: roleId || undefined,
           status,
           autoVerify,
         })
@@ -6352,15 +6385,18 @@ function UserDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Role">
               <Select
-                value={role}
-                onValueChange={(v) => setRole(v as 'user' | 'admin')}
+                value={roleId}
+                onValueChange={(v) => setRoleId(v)}
               >
                 <SelectTrigger className={INPUT_CLASS}>
-                  <SelectValue />
+                  <SelectValue placeholder={allRoles.length === 0 ? 'Loading roles…' : 'Select role'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">user</SelectItem>
-                  <SelectItem value="admin">admin</SelectItem>
+                  {allRoles.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}{r.isSystem ? ' (system)' : ''}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </Field>
@@ -6565,6 +6601,7 @@ function ApiSettingsTab() {
         apiCorsOrigins,
         apiWebhookUrl: apiWebhookUrl || null,
       })
+      invalidateSettings()
       toast.success('API settings saved')
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Save failed.')
