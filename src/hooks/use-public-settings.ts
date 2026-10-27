@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { api } from '@/lib/api-client'
 
-type PublicSettings = {
+export type PublicSettings = {
   siteName: string
   tagline: string
   logoUrl: string
@@ -23,6 +23,9 @@ type PublicSettings = {
   adsEnabled: boolean
   adsenseClient: string
   guestPostingEnabled: boolean
+  registrationEnabled: boolean
+  defaultExpiry: string
+  maxFileSizeBytes: number
 }
 
 const DEFAULT_SETTINGS: PublicSettings = {
@@ -45,6 +48,9 @@ const DEFAULT_SETTINGS: PublicSettings = {
   adsEnabled: false,
   adsenseClient: '',
   guestPostingEnabled: true,
+  registrationEnabled: true,
+  defaultExpiry: 'never',
+  maxFileSizeBytes: 25 * 1024 * 1024,
 }
 
 // ---- Module-level store with useSyncExternalStore for instant updates ----
@@ -92,6 +98,10 @@ async function fetchSettings(): Promise<PublicSettings> {
       adsEnabled: (s.adsEnabled as boolean) ?? DEFAULT_SETTINGS.adsEnabled,
       adsenseClient: (s.adsenseClient as string) || DEFAULT_SETTINGS.adsenseClient,
       guestPostingEnabled: (s.guestPostingEnabled as boolean) ?? DEFAULT_SETTINGS.guestPostingEnabled,
+      registrationEnabled: (s.registrationEnabled as boolean) ?? DEFAULT_SETTINGS.registrationEnabled,
+      defaultExpiry: (s.defaultExpiry as string) || DEFAULT_SETTINGS.defaultExpiry,
+      maxFileSizeBytes:
+        typeof s.maxFileSizeBytes === 'number' ? s.maxFileSizeBytes : DEFAULT_SETTINGS.maxFileSizeBytes,
     }
     notifyListeners()
     return cachedSettings

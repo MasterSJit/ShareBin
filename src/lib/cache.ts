@@ -1,6 +1,9 @@
 /**
  * Tiny in-memory TTL cache (stand-in for Redis in the sandbox).
- * Per spec §5.4 — used for paste metadata + rendered content + view counters.
+ * Per spec §5.4 — used for paste metadata, auth lookups and rate limiting.
+ *
+ * NOTE: state lives in the Node.js process. With several instances behind a
+ * load balancer each instance keeps its own cache and rate-limit buckets.
  */
 type Entry = { value: unknown; expiresAt: number }
 
@@ -31,7 +34,7 @@ export function cacheDelPrefix(prefix: string): void {
   }
 }
 
-/** Sliding-window-ish rate limiter (per spec §8 — login + paste creation). */
+/** Sliding-window rate limiter (per spec §8 — login, paste creation, API keys). */
 const rateBuckets = new Map<string, number[]>()
 
 export function rateLimitHit(
@@ -51,15 +54,17 @@ export function rateLimitHit(
   return false
 }
 
-/** Pending view-counter increments (flushed periodically to DB). */
-const viewCounter = new Map<string, number>()
-
-export function viewCounterIncr(pasteId: string): void {
-  viewCounter.set(pasteId, (viewCounter.get(pasteId) ?? 0) + 1)
-}
-
-export function viewCounterDrain(): Map<string, number> {
-  const drained = new Map(viewCounter)
-  viewCounter.clear()
-  return drained
+// Periodically drop expired cache entries and idle rate-limit buckets so the
+// maps don't grow without bound on a long-running server.
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000
+const globalForSweep = globalThis as unknown as { __psCacheSweep?: ReturnType<typeof setInterval> }
+if (!globalForSweep.__psCacheSweep) {
+  globalForSweep.__psCacheSweep = setInterval(() => {
+    const now = Date.now()
+    for (const [k, e] of store) if (e.expiresAt < now) store.delete(k)
+    for (const [k, times] of rateBuckets) {
+      if (!times.length || times[times.length - 1] < now - 60 * 60 * 1000) rateBuckets.delete(k)
+    }
+  }, SWEEP_INTERVAL_MS)
+  globalForSweep.__psCacheSweep.unref?.()
 }

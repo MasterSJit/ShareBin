@@ -3,7 +3,6 @@
 /** Common languages for the Monaco editor language picker. */
 export const LANGUAGES: { value: string; label: string }[] = [
   { value: 'plaintext', label: 'Plain Text' },
-  { value: 'plaintext', label: 'Auto-detect' },
   { value: 'javascript', label: 'JavaScript' },
   { value: 'typescript', label: 'TypeScript' },
   { value: 'jsx', label: 'JSX' },
@@ -47,8 +46,111 @@ export const LANGUAGES: { value: string; label: string }[] = [
   { value: 'makefile', label: 'Makefile' },
   { value: 'graphql', label: 'GraphQL' },
   { value: 'solidity', label: 'Solidity' },
-  { value: 'plaintext', label: 'Other / Plaintext' },
+  { value: 'protobuf', label: 'Protocol Buffers' },
+  { value: 'julia', label: 'Julia' },
+  { value: 'hcl', label: 'HCL / Terraform' },
+  { value: 'diff', label: 'Diff / Patch' },
 ]
+
+/** Human label for a language id (falls back to the id itself). */
+export function languageLabel(value: string): string {
+  return LANGUAGES.find((l) => l.value === value)?.label || value
+}
+
+/**
+ * Map our language ids to Monaco's. Monaco has no `bash`, `jsx`, `tsx`,
+ * `haskell`, `makefile` or `diff` modes; unknown ids render as plaintext.
+ */
+const MONACO_ALIASES: Record<string, string> = {
+  bash: 'shell',
+  jsx: 'javascript',
+  tsx: 'typescript',
+  haskell: 'plaintext',
+  makefile: 'plaintext',
+  diff: 'plaintext',
+  solidity: 'sol',
+}
+
+export function monacoLanguage(value: string | undefined | null): string {
+  if (!value) return 'plaintext'
+  return MONACO_ALIASES[value] ?? value
+}
+
+/**
+ * Best-effort language detection for pasted text. Cheap regex scoring —
+ * good enough to pre-select the highlighter; the user can always override.
+ */
+export function detectLanguage(text: string): string {
+  const src = text.slice(0, 20_000)
+  const t = src.trim()
+  if (!t) return 'plaintext'
+
+  // Shebangs are decisive.
+  const shebang = /^#!.*\b(python[0-9.]*|node|deno|bun|bash|sh|zsh|ruby|perl|php|pwsh)\b/.exec(t)
+  if (shebang) {
+    const i = shebang[1]
+    if (i.startsWith('python')) return 'python'
+    if (i === 'node' || i === 'deno' || i === 'bun') return 'javascript'
+    if (i === 'ruby') return 'ruby'
+    if (i === 'perl') return 'perl'
+    if (i === 'php') return 'php'
+    if (i === 'pwsh') return 'powershell'
+    return 'bash'
+  }
+  if ((t.startsWith('{') || t.startsWith('[')) && t.length < 2_000_000) {
+    try {
+      JSON.parse(t)
+      return 'json'
+    } catch {
+      /* not JSON */
+    }
+  }
+  if (/^<\?php/.test(t)) return 'php'
+  if (/^<\?xml/.test(t)) return 'xml'
+  if (/^<!doctype html|^<html[\s>]/i.test(t)) return 'html'
+  if (/^(diff --git|--- a\/|\+\+\+ b\/|@@ -\d)/m.test(t) && /^[+-]/m.test(t)) return 'diff'
+  if (/^FROM\s+\S+/m.test(t) && /^(RUN|CMD|COPY|ENTRYPOINT|WORKDIR)\s/m.test(t)) return 'dockerfile'
+
+  const rules: [string, RegExp, number][] = [
+    ['python', /^\s*def \w+\(.*\)\s*(->\s*[\w\[\], .]+)?:\s*$/m, 4],
+    ['python', /^\s*(from [\w.]+ )?import [\w., ]+$/m, 1],
+    ['python', /^\s*(elif|except|with .* as \w+):|\bself\.|__name__ == ['"]__main__['"]|print\(/m, 2],
+    ['go', /^package \w+$|^func (\(\w+ \*?\w+\) )?\w+\(|:= /m, 3],
+    ['rust', /\bfn \w+\(|\blet mut\b|\bimpl\b.*\{|println!\(|::<|->\s*Result</m, 3],
+    ['java', /\bpublic (static )?(class|void|interface)\b|System\.out\.println|@Override/m, 3],
+    ['csharp', /\busing System(\.\w+)*;|\bnamespace [\w.]+|Console\.WriteLine|\{ get; set; \}/m, 3],
+    ['cpp', /#include\s*<(iostream|vector|string|map|memory)>|std::|cout\s*<<|template\s*</m, 3],
+    ['c', /#include\s*<(stdio|stdlib|string|unistd)\.h>|\bprintf\(|\bmalloc\(/m, 3],
+    ['php', /\$\w+\s*=.*;|->\w+\(|echo\s+\$/m, 1],
+    ['ruby', /^\s*(def \w+[?!]?(\(.*\))?|end|require ['"]\w+['"]|puts .*)$/m, 1],
+    ['kotlin', /\bfun \w+\(|\bval \w+(: \w+)? =|println\(/m, 2],
+    ['swift', /\bimport (SwiftUI|UIKit|Foundation)\b|\bfunc \w+\(.*\) -> |\bguard let\b/m, 3],
+    ['typescript', /\binterface \w+\s*\{|:\s*(string|number|boolean|void|unknown)\b|\btype \w+ = |\bas const\b|<[A-Z]\w*>\(/m, 2],
+    ['javascript', /\b(const|let|var) \w+ = |=>|console\.log\(|\bfunction\s*\w*\(|require\(['"]|module\.exports|export (default|const|function)/m, 1],
+    ['sql', /^\s*(SELECT\s.+\sFROM|INSERT INTO|UPDATE \w+ SET|DELETE FROM|CREATE (TABLE|INDEX|VIEW)|ALTER TABLE)\b/im, 4],
+    ['css', /^\s*[.#@]?[\w-:]+(\s*[,>+~]\s*[.#]?[\w-:]+)*\s*\{\s*$|^\s*[\w-]+\s*:\s*[^;{}]+;\s*$/m, 1],
+    ['html', /<\/?(div|span|p|a|body|head|script|style|section|ul|li|table)[\s>]/i, 2],
+    ['bash', /^\s*(if \[|fi$|then$|done$|echo |export \w+=|sudo |apt(-get)? |cd |\$\(|for \w+ in )/m, 2],
+    ['powershell', /\b(Write-Host|Get-\w+|Set-\w+|\$env:|-ErrorAction)\b/m, 3],
+    ['yaml', /^(---\s*$|\s*[\w-]+:\s*(\S.*)?$|\s*- \S)/m, 1],
+    ['markdown', /^#{1,6} \S|^\s*[-*] \[[ x]\] |^```|\[[^\]]+\]\([^)]+\)/m, 2],
+    ['lua', /\blocal function\b|\blocal \w+ = |\bthen\b[\s\S]*\bend\b/m, 2],
+  ]
+  const scores: Record<string, number> = {}
+  for (const [lang, re, weight] of rules) {
+    const matches = src.match(new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g'))
+    if (matches) scores[lang] = (scores[lang] ?? 0) + weight * Math.min(matches.length, 5)
+  }
+  // YAML/markdown/css heuristics fire on lots of things; damp them when
+  // code-ish punctuation is present.
+  if (/[;{}()]/.test(src)) {
+    if (scores.yaml) scores.yaml *= 0.3
+    if (scores.markdown) scores.markdown *= 0.5
+  }
+  if (scores.typescript && scores.javascript) scores.typescript += scores.javascript
+  const best = Object.entries(scores).sort((a, b) => b[1] - a[1])[0]
+  return best && best[1] >= 3 ? best[0] : 'plaintext'
+}
 
 export const EXPIRY_OPTIONS: { value: string; label: string }[] = [
   { value: 'never', label: 'Never' },

@@ -21,6 +21,9 @@ model User {
   status          String   @default("active") // "pending_verification" | "active" | "suspended" | "banned"
   emailVerifiedAt DateTime?
   apiKey          String?  @unique
+  // Bumped on password change/reset, ban or role change — invalidates every
+  // session token issued before the bump.
+  sessionVersion  Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -31,6 +34,7 @@ model User {
   usageRecord  UsageRecord?
   payments     Payment[]
   invoices     Invoice[]
+  resetTokens  PasswordResetToken[]
 }
 
 model Paste {
@@ -81,8 +85,8 @@ model PasteAccessGrant {
 
 model AuditLog {
   id         String   @id @default(cuid())
-  adminId    String
-  admin      User     @relation(fields: [adminId], references: [id])
+  adminId    String? // null = system action (cron, auto-expiry, burn)
+  admin      User?    @relation(fields: [adminId], references: [id], onDelete: SetNull)
   action     String
   targetType String
   targetId   String
@@ -91,6 +95,17 @@ model AuditLog {
 
   @@index([adminId])
   @@index([createdAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique // sha256 of the token — the raw token is never stored
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model SiteSetting {

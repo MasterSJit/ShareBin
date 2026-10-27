@@ -100,9 +100,9 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-14 max-w-7xl items-center gap-1 px-4 sm:px-6">
-        {/* Back / forward (browser history) */}
-        <div className="flex items-center gap-0.5">
+      <div className="mx-auto flex h-14 max-w-6xl items-center gap-1 px-4 sm:px-6">
+        {/* Back / forward (browser history). -ml-2 lines the icon up with the page edge. */}
+        <div className="-ml-2 flex items-center gap-0.5">
           <Button
             variant="ghost"
             size="icon"
@@ -114,7 +114,7 @@ export function Header() {
           </Button>
         </div>
 
-        <div className="mx-1 h-5 w-px bg-border" />
+        <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
 
         {/* Logo */}
         <motion.button
@@ -138,7 +138,7 @@ export function Header() {
         </motion.button>
 
         {/* Nav */}
-        <nav className="ml-2 flex items-center gap-0.5">
+        <nav className="ml-1 flex min-w-0 items-center gap-0.5 sm:ml-2">
           {navItems.map((item) => {
             const active = isActive(item.name)
             return (
@@ -147,7 +147,9 @@ export function Header() {
                 variant="ghost"
                 size="sm"
                 onClick={item.onClick}
-                className={`relative gap-1.5 rounded-md text-[13px] transition-colors ${
+                aria-label={item.label}
+                title={item.label}
+                className={`relative gap-1.5 rounded-md px-2 text-[13px] transition-colors sm:px-3 ${
                   active
                     ? 'text-foreground'
                     : 'text-muted-foreground hover:text-foreground'
@@ -167,7 +169,7 @@ export function Header() {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
           {/* Theme toggle */}
           <Button
             variant="ghost"

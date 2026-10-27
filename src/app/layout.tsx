@@ -117,8 +117,12 @@ export async function generateMetadata(): Promise<Metadata> {
   const s = await fetchSeoSettings();
 
   // Convert `{title} — PasteShare` template → Next.js `%s — PasteShare` form.
-  const template = s.metaTitleTemplate.replace("{title}", "%s");
-  const defaultTitle = template.replace("%s", s.siteName);
+  const template = s.metaTitleTemplate.includes("{title}")
+    ? s.metaTitleTemplate.replace("{title}", "%s")
+    : `%s — ${s.siteName}`;
+  // The template usually already contains the site name, so filling it with
+  // the site name would read "ShareBin — ShareBin"; use the tagline instead.
+  const defaultTitle = s.tagline ? `${s.siteName} — ${s.tagline}` : s.siteName;
   const description = s.tagline || s.metaDescriptionTemplate;
 
   const keywords = s.metaKeywords

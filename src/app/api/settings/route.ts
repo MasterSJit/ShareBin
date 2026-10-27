@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
-import { db } from '@/lib/db'
 import { ok } from '@/lib/api-response'
+import { getSettings } from '@/lib/paste-utils'
 
 /**
  * GET /api/settings — public site settings (only non-sensitive keys).
@@ -8,15 +8,7 @@ import { ok } from '@/lib/api-response'
  * Does NOT return secrets (captchaSecretKey, apiKey, smtp, etc.).
  */
 export async function GET(_req: NextRequest) {
-  const rows = await db.siteSetting.findMany()
-  const all: Record<string, unknown> = {}
-  for (const r of rows) {
-    try {
-      all[r.key] = JSON.parse(r.value)
-    } catch {
-      all[r.key] = r.value
-    }
-  }
+  const all = await getSettings()
 
   // Only expose non-sensitive settings
   const safe: Record<string, unknown> = {
@@ -42,6 +34,11 @@ export async function GET(_req: NextRequest) {
     adsEnabled: all.adsEnabled ?? false,
     adsenseClient: all.adsenseClient ?? '',
     guestPostingEnabled: all.guestPostingEnabled ?? true,
+    registrationEnabled: all.registrationEnabled ?? true,
+    // Upload / paste defaults the create form needs
+    defaultExpiry: all.defaultExpiry ?? 'never',
+    maxFileSizeBytes: all.maxFileSizeBytes ?? 25 * 1024 * 1024,
+    allowedFileTypes: all.allowedFileTypes ?? '*',
   }
 
   return ok('Site settings', [safe])

@@ -1,40 +1,20 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { ok, created, unauthorized, forbidden, notFound, badRequest, conflict, serverError } from '@/lib/api-response'
-import { getSession, hashPassword, generateApiKey } from '@/lib/auth'
+import { getSession, hashPassword, generateApiKey, bumpSessionVersion } from '@/lib/auth'
 import { auditLog } from '@/lib/paste-utils'
 import { cacheDelPrefix } from '@/lib/cache'
 import { parseJsonBody } from '@/lib/parse-body'
-import type { SafeUser } from '@/lib/types'
+import { hardDeleteUserPastes } from '@/lib/cleanup'
+import { toSafeUser } from '@/lib/user-safe'
+
+const VALID_STATUSES = ['pending_verification', 'active', 'suspended', 'banned']
 
 async function requireAdmin() {
   const session = await getSession()
   if (!session) return { error: unauthorized('Authentication required') as Response, session: null }
   if (session.role !== 'admin') return { error: forbidden('Admin only') as Response, session: null }
   return { error: null, session }
-}
-
-function toSafeUser(u: {
-  id: string
-  email: string
-  displayName: string | null
-  role: string
-  status: string
-  emailVerifiedAt: Date | null
-  apiKey: string | null
-  createdAt: Date
-  roleId: string | null
-}): SafeUser {
-  return {
-    id: u.id,
-    email: u.email,
-    displayName: u.displayName,
-    role: u.role as 'user' | 'admin',
-    status: u.status as SafeUser['status'],
-    emailVerifiedAt: u.emailVerifiedAt ? u.emailVerifiedAt.toISOString() : null,
-    apiKey: u.apiKey,
-    createdAt: u.createdAt.toISOString(),
-  }
 }
 
 // GET /api/admin/user — list/search all users
@@ -125,7 +105,7 @@ export async function PUT(req: NextRequest) {
       displayName: body.displayName?.trim().slice(0, 100) || null,
       role: resolvedRole,
       roleId: resolvedRoleId,
-      status: body.status || 'active',
+      status: VALID_STATUSES.includes(body.status || '') ? body.status! : 'active',
       emailVerifiedAt: body.autoVerify !== false ? new Date() : null,
     },
   })
@@ -162,7 +142,10 @@ export async function PATCH(req: NextRequest) {
   const patch: Record<string, unknown> = {}
   const meta: Record<string, unknown> = { before: { status: target.status, role: target.role, email: target.email, displayName: target.displayName } }
 
-  if (body.status && ['pending_verification', 'active', 'suspended', 'banned'].includes(body.status)) {
+  if (body.status && VALID_STATUSES.includes(body.status)) {
+    if (target.id === session.userId && body.status !== 'active') {
+      return badRequest('Cannot suspend or ban your own account')
+    }
     patch.status = body.status
   }
   // Role: accept any role name that exists in the Role table. Also resolve roleId.
@@ -219,7 +202,15 @@ export async function PATCH(req: NextRequest) {
 
   const updated = await db.user.update({ where: { id }, data: patch })
   cacheDelPrefix(`user:${id}`)
-  await auditLog(session.userId, 'update_user', 'user', id, { ...meta, after: patch })
+  // A new password or a ban/suspension signs the user out of every device.
+  if (patch.passwordHash || patch.status === 'banned' || patch.status === 'suspended') {
+    await bumpSessionVersion(id)
+  }
+  const { passwordHash: _omit, ...loggable } = patch
+  await auditLog(session.userId, 'update_user', 'user', id, {
+    ...meta,
+    after: { ...loggable, ...(patch.passwordHash ? { password: '(changed)' } : {}) },
+  })
   return ok('User updated', [toSafeUser(updated)])
 }
 
@@ -240,10 +231,12 @@ export async function DELETE(req: NextRequest) {
   if (!target) return notFound('User not found')
 
   try {
+    // The admin UI promises "delete the user and all their pastes".
+    const deletedPastes = await hardDeleteUserPastes(id, session.userId)
     await db.user.delete({ where: { id } })
     cacheDelPrefix(`user:${id}`)
-    await auditLog(session.userId, 'delete_user', 'user', id, { email: target.email })
-    return ok('User deleted', [])
+    await auditLog(session.userId, 'delete_user', 'user', id, { email: target.email, deletedPastes })
+    return ok('User deleted', [{ deletedPastes }])
   } catch (e) {
     return serverError('Failed to delete user: ' + (e as Error).message)
   }

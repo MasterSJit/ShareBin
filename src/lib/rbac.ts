@@ -168,10 +168,8 @@ function planToLimits(plan: {
 /** Get or create the usage record for a user. */
 export async function getOrCreateUsage(userId: string) {
   const now = new Date()
-  let record = await db.usageRecord.findUnique({ where: { userId } })
-  if (!record) {
-    record = await db.usageRecord.create({ data: { userId } })
-  }
+  // upsert avoids a unique-constraint race when two requests create the row.
+  let record = await db.usageRecord.upsert({ where: { userId }, update: {}, create: { userId } })
 
   // Reset monthly counter if a month has passed
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -195,7 +193,7 @@ export async function recomputeUsage(userId: string) {
   const fileCount = pastes.filter((p) => p.contentType === 'file').length
   const totalViews = pastes.reduce((s, p) => s + p.viewCount, 0)
 
-  const record = await getOrCreateUsage(userId)
+  await getOrCreateUsage(userId)
   return db.usageRecord.update({
     where: { userId },
     data: {
@@ -210,7 +208,7 @@ export async function recomputeUsage(userId: string) {
 
 /** Increment the monthly paste counter. Call on paste creation. */
 export async function incrementMonthlyPastes(userId: string) {
-  const record = await getOrCreateUsage(userId)
+  await getOrCreateUsage(userId)
   return db.usageRecord.update({
     where: { userId },
     data: { monthPasteCount: { increment: 1 }, totalPastes: { increment: 1 } },
@@ -234,9 +232,19 @@ export async function checkStorageLimit(
     // Guests: no persistent storage tracking, just check per-file size
     return additionalBytes <= limits.maxPasteSize
   }
-  const record = await getOrCreateUsage(userId)
-  const currentStorage = Number(record.storageBytes)
+  // Aggregate live rather than trusting the cached UsageRecord, which is only
+  // refreshed on create/delete and could drift.
+  const currentStorage = await getStorageUsed(userId)
   return currentStorage + additionalBytes <= limits.maxStorageBytes
+}
+
+/** Total bytes of files currently stored for a user. */
+export async function getStorageUsed(userId: string): Promise<number> {
+  const agg = await db.paste.aggregate({
+    where: { ownerId: userId, contentType: 'file' },
+    _sum: { fileSizeBytes: true },
+  })
+  return agg._sum.fileSizeBytes ?? 0
 }
 
 // ============================================================

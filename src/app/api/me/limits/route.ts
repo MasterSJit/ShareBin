@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { ok, unauthorized } from '@/lib/api-response'
 import { getSession } from '@/lib/auth'
-import { getUserLimits, getActiveSubscription, getOrCreateUsage } from '@/lib/rbac'
+import { getUserLimits, getActiveSubscription, recomputeUsage } from '@/lib/rbac'
 
 // GET /api/me/limits — current user's plan, limits, and usage
 export async function GET(_req: NextRequest) {
@@ -11,7 +11,8 @@ export async function GET(_req: NextRequest) {
 
   const limits = await getUserLimits(session.userId)
   const sub = await getActiveSubscription(session.userId)
-  const usage = await getOrCreateUsage(session.userId)
+  // Recompute so storage/paste counts are exact (cheap: one indexed query).
+  const usage = await recomputeUsage(session.userId)
   const user = await db.user.findUnique({
     where: { id: session.userId },
     select: { id: true, email: true, displayName: true, role: true, roleId: true },

@@ -9,34 +9,23 @@ import {
   notFound,
   conflict,
   tooManyRequests,
-  serverError,
 } from '@/lib/api-response'
-import { getSession, hashPassword, comparePassword, generateApiKey } from '@/lib/auth'
+import {
+  getSession,
+  hashPassword,
+  comparePassword,
+  generateApiKey,
+  setSessionCookie,
+  clearSessionCookie,
+  bumpSessionVersion,
+  clientIp,
+} from '@/lib/auth'
 import { rateLimitHit, cacheDelPrefix } from '@/lib/cache'
-import type { SafeUser } from '@/lib/types'
+import { getSetting } from '@/lib/paste-utils'
+import { hardDeleteUserPastes } from '@/lib/cleanup'
+import { toSafeUser, toPublicUser } from '@/lib/user-safe'
 
-function toSafeUser(u: {
-  id: string
-  email: string
-  displayName: string | null
-  role: string
-  status: string
-  emailVerifiedAt: Date | null
-  apiKey: string | null
-  createdAt: Date
-}, pasteCount?: number): SafeUser {
-  return {
-    id: u.id,
-    email: u.email,
-    displayName: u.displayName,
-    role: u.role as 'user' | 'admin',
-    status: u.status as SafeUser['status'],
-    emailVerifiedAt: u.emailVerifiedAt ? u.emailVerifiedAt.toISOString() : null,
-    apiKey: u.apiKey,
-    createdAt: u.createdAt.toISOString(),
-    pasteCount,
-  }
-}
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 // PUT /api/user — register a new user
 export async function PUT(req: NextRequest) {
@@ -48,43 +37,44 @@ export async function PUT(req: NextRequest) {
   }
   const email = body.email?.trim().toLowerCase()
   const password = body.password
-  const displayName = body.displayName?.trim() || null
+  const displayName = body.displayName?.trim().slice(0, 100) || null
   if (!email || !password) return badRequest('email and password are required')
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return badRequest('Invalid email format')
+  if (email.length > 254 || !EMAIL_RE.test(email)) return badRequest('Invalid email format')
   if (password.length < 8) return badRequest('Password must be at least 8 characters')
+  if (password.length > 256) return badRequest('Password is too long')
 
-  const ip = req.headers.get('x-forwarded-for') || 'unknown'
-  if (rateLimitHit(`register:${ip}`, 5, 60_000)) {
+  if ((await getSetting<boolean>('registrationEnabled')) === false) {
+    return forbidden('Registration is currently closed')
+  }
+
+  if (rateLimitHit(`register:${clientIp(req.headers)}`, 5, 60_000)) {
     return tooManyRequests('Too many registrations. Try again later.')
   }
 
   const existing = await db.user.findUnique({ where: { email } })
   if (existing) return conflict('Email already registered')
 
-  const hash = await hashPassword(password)
+  // Link the RBAC "user" role when it exists so permission checks work.
+  const userRole = await db.role.findUnique({ where: { name: 'user' }, select: { id: true } })
+
   const user = await db.user.create({
     data: {
       email,
-      passwordHash: hash,
+      passwordHash: await hashPassword(password),
       displayName,
       role: 'user',
+      roleId: userRole?.id ?? null,
       status: 'active', // sandbox: auto-active (no SMTP)
       emailVerifiedAt: new Date(),
     },
   })
 
-  await setSessionCookieSafe(user.id, user.email, user.role)
+  await setSessionCookie({ userId: user.id, email: user.email, role: user.role, v: user.sessionVersion })
   return created('User registered successfully', [toSafeUser(user)])
 }
 
-// Helper to set session cookie without circular import
-async function setSessionCookieSafe(userId: string, email: string, role: string) {
-  const { setSessionCookie } = await import('@/lib/auth')
-  await setSessionCookie({ userId, email, role })
-}
-
-// PATCH /api/user — update own profile (or {id} in body)
-// Supports: displayName, password (current required), apiKey (regenerate)
+// PATCH /api/user — update own profile
+// Supports: displayName, password (current required), apiKey (regenerate / revoke)
 export async function PATCH(req: NextRequest) {
   const session = await getSession()
   if (!session) return unauthorized('Authentication required')
@@ -95,6 +85,7 @@ export async function PATCH(req: NextRequest) {
     currentPassword?: string
     newPassword?: string
     regenerateApiKey?: boolean
+    revokeApiKey?: boolean
   } = {}
   try {
     body = await req.json()
@@ -104,10 +95,9 @@ export async function PATCH(req: NextRequest) {
 
   // Only the user themselves can patch their own profile here.
   // (Admin mutations go through /api/admin/user.)
-  const targetId = body.id && body.id !== session.userId ? body.id : session.userId
-  if (targetId !== session.userId) return forbidden('Cannot edit another user')
+  if (body.id && body.id !== session.userId) return forbidden('Cannot edit another user')
 
-  const user = await db.user.findUnique({ where: { id: targetId } })
+  const user = await db.user.findUnique({ where: { id: session.userId } })
   if (!user) return notFound('User not found')
 
   const patch: { displayName?: string | null; passwordHash?: string; apiKey?: string | null } = {}
@@ -116,55 +106,73 @@ export async function PATCH(req: NextRequest) {
     patch.displayName = body.displayName.trim().slice(0, 100) || null
   }
 
+  let passwordChanged = false
   if (body.newPassword) {
     if (!body.currentPassword) return badRequest('currentPassword is required to change password')
-    if (body.newPassword.length < 8) return badRequest('New password too short')
+    if (body.newPassword.length < 8) return badRequest('New password must be at least 8 characters')
+    if (body.newPassword.length > 256) return badRequest('New password is too long')
     const okCur = await comparePassword(body.currentPassword, user.passwordHash)
     if (!okCur) return forbidden('Current password is incorrect')
     patch.passwordHash = await hashPassword(body.newPassword)
+    passwordChanged = true
   }
 
-  if (body.regenerateApiKey) {
-    patch.apiKey = generateApiKey()
-  }
+  if (body.regenerateApiKey) patch.apiKey = generateApiKey()
+  else if (body.revokeApiKey) patch.apiKey = null
 
-  const updated = await db.user.update({ where: { id: targetId }, data: patch })
-  cacheDelPrefix(`user:${targetId}`)
+  if (Object.keys(patch).length === 0) return badRequest('No valid fields to update')
+
+  let updated = await db.user.update({ where: { id: user.id }, data: patch })
+  cacheDelPrefix(`user:${user.id}`)
+
+  if (passwordChanged) {
+    // Sign out every other device, then re-issue this browser's session.
+    const v = await bumpSessionVersion(user.id)
+    updated = { ...updated, sessionVersion: v }
+    if (session.via === 'session') {
+      await setSessionCookie({ userId: updated.id, email: updated.email, role: updated.role, v })
+    }
+  }
   return ok('Profile updated', [toSafeUser(updated)])
 }
 
-// DELETE /api/user — delete own account (currentPassword required)
+// DELETE /api/user — delete own account and all its pastes (currentPassword required)
 export async function DELETE(req: NextRequest) {
   const session = await getSession()
   if (!session) return unauthorized('Authentication required')
 
   let body: { id?: string; currentPassword?: string } = {}
   try {
-    body = await req.json().catch(() => ({}))
+    body = await req.json()
   } catch {
     /* empty body allowed */
   }
 
-  const targetId = body.id && body.id !== session.userId ? body.id : session.userId
-  if (targetId !== session.userId) return forbidden('Cannot delete another user')
+  if (body.id && body.id !== session.userId) return forbidden('Cannot delete another user')
 
-  const user = await db.user.findUnique({ where: { id: targetId } })
+  const user = await db.user.findUnique({ where: { id: session.userId } })
   if (!user) return notFound('User not found')
 
   if (!body.currentPassword) return badRequest('currentPassword is required')
   const okPw = await comparePassword(body.currentPassword, user.passwordHash)
   if (!okPw) return forbidden('Current password is incorrect')
 
-  // Cascade: pastes get ownerId set null (per schema); access grants + audit logs remain.
-  await db.user.delete({ where: { id: targetId } })
-  cacheDelPrefix(`user:${targetId}`)
+  if (user.role === 'admin') {
+    const otherAdmins = await db.user.count({ where: { role: 'admin', id: { not: user.id } } })
+    if (otherAdmins === 0) return badRequest('You are the last admin — promote someone else before deleting this account')
+  }
 
-  const { clearSessionCookie } = await import('@/lib/auth')
+  // Pastes would otherwise be orphaned (ownerId → null) and look like guest
+  // pastes; the UI promises they are deleted, so delete them and their files.
+  const deletedPastes = await hardDeleteUserPastes(user.id, user.id)
+  await db.user.delete({ where: { id: user.id } })
+  cacheDelPrefix(`user:${user.id}`)
+
   await clearSessionCookie()
-  return ok('Account deleted', [])
+  return ok('Account deleted', [{ deletedPastes }])
 }
 
-// GET /api/user — own profile (no id) or list (admin only)
+// GET /api/user — own profile; ?id=<userId> → public profile; ?list=1 → admin listing
 export async function GET(req: NextRequest) {
   const session = await getSession()
   if (!session) return unauthorized('Authentication required')
@@ -173,14 +181,14 @@ export async function GET(req: NextRequest) {
   const id = searchParams.get('id')
   const list = searchParams.get('list')
 
-  // /api/user?id=<userId> — fetch a specific user (public-ish profile)
-  if (id) {
+  if (id && id !== session.userId) {
     const u = await db.user.findUnique({ where: { id } })
     if (!u) return notFound('User not found')
-    return ok('User fetched', [toSafeUser(u)])
+    // Admins see the full record; everyone else gets the public profile only
+    // (this used to return any user's email and API key).
+    return ok('User fetched', [session.role === 'admin' ? toSafeUser(u) : toPublicUser(u)])
   }
 
-  // /api/user?list=1 — admin only listing
   if (list) {
     if (session.role !== 'admin') return forbidden('Admin only')
     const users = await db.user.findMany({ orderBy: { createdAt: 'desc' }, take: 200 })
@@ -194,7 +202,6 @@ export async function GET(req: NextRequest) {
     return ok('Users fetched', users.map((u) => toSafeUser(u, countMap.get(u.id) ?? 0)))
   }
 
-  // default — own profile
   const me = await db.user.findUnique({ where: { id: session.userId } })
   if (!me) return notFound('User not found')
   return ok('Current user', [toSafeUser(me)])

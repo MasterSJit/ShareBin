@@ -58,8 +58,9 @@ export function useGsapMagnetic<T extends HTMLElement = HTMLButtonElement>(stren
   const ref = useRef<T>(null)
 
   useEffect(() => {
-    const el = ref.current
-    if (!el) return
+    const node = ref.current
+    if (!node) return
+    const el: T = node
     if (window.matchMedia('(hover: none)').matches) return // skip on touch
 
     const xTo = gsap.quickTo(el, 'x', { duration: 0.4, ease: 'power3.out' })

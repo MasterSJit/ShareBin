@@ -19,18 +19,25 @@ import { toast } from 'sonner'
 import { api, ApiError } from '@/lib/api-client'
 import { useAppStore } from '@/lib/store'
 import { Reveal, scaleIn } from '@/components/motion-helpers'
+import { usePublicSettings } from '@/hooks/use-public-settings'
 import type { SafeUser } from '@/lib/types'
 
-type Mode = 'login' | 'register'
+type Mode = 'login' | 'register' | 'reset'
+
+// The demo hint pre-fills the seeded admin account — never show it in production.
+const SHOW_DEMO_HINT = process.env.NODE_ENV !== 'production'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const INPUT_CLASS =
   'bg-surface-3 border-border rounded-md focus-visible:ring-brand text-sm'
 
-export function AuthView({ mode }: { mode: Mode }) {
+export function AuthView({ mode, resetToken }: { mode: Mode; resetToken?: string }) {
   const { goLogin, goRegister } = useAppStore()
+  const { settings } = usePublicSettings()
   const isLogin = mode === 'login'
+  const isReset = mode === 'reset'
+  const [brandA, brandB] = splitBrand(settings.siteName)
 
   function onTabChange(v: 'login' | 'register') {
     if (v === 'login') goLogin()
@@ -38,7 +45,7 @@ export function AuthView({ mode }: { mode: Mode }) {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center px-4 py-8">
+    <div className="flex min-h-[calc(100vh-9rem)] items-center justify-center px-4 py-8">
       <Reveal variant={scaleIn} className="w-full max-w-md">
         <div className="surface glow-brand overflow-hidden rounded-2xl">
           {/* Terminal strip */}
@@ -47,7 +54,7 @@ export function AuthView({ mode }: { mode: Mode }) {
             <span className="h-2.5 w-2.5 rounded-full bg-amber-500/60" />
             <span className="h-2.5 w-2.5 rounded-full bg-brand/70" />
             <span className="ml-2 font-mono text-xs text-muted-foreground">
-              pasteshare — auth
+              {settings.siteName.toLowerCase().replace(/\s+/g, '-')} — auth
             </span>
           </div>
 
@@ -61,28 +68,44 @@ export function AuthView({ mode }: { mode: Mode }) {
               </div>
               <div className="min-w-0">
                 <h1 className="text-xl font-semibold tracking-tight">
-                  Paste<span className="text-brand">Share</span>
+                  {brandA}<span className="text-brand">{brandB}</span>
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  {isLogin ? 'Welcome back' : 'Create your account'}
+                  {isReset ? 'Choose a new password' : isLogin ? 'Welcome back' : 'Create your account'}
                 </p>
               </div>
             </div>
 
-            {/* Underline tabs */}
-            <div className="mt-6 flex gap-6 border-b border-border">
-              <TabButton active={isLogin} onClick={() => onTabChange('login')}>
-                Log in
-              </TabButton>
-              <TabButton active={!isLogin} onClick={() => onTabChange('register')}>
-                Sign up
-              </TabButton>
-            </div>
+            {isReset ? (
+              <div className="mt-6">
+                <ForgotPasswordBlock initialToken={resetToken} onDone={goLogin} />
+              </div>
+            ) : (
+              <>
+                {/* Underline tabs */}
+                <div className="mt-6 flex gap-6 border-b border-border">
+                  <TabButton active={isLogin} onClick={() => onTabChange('login')}>
+                    Log in
+                  </TabButton>
+                  <TabButton active={!isLogin} onClick={() => onTabChange('register')}>
+                    Sign up
+                  </TabButton>
+                </div>
 
-            {/* Form */}
-            <div className="mt-6">
-              {isLogin ? <LoginForm /> : <RegisterForm />}
-            </div>
+                {/* Form */}
+                <div className="mt-6">
+                  {isLogin ? (
+                    <LoginForm />
+                  ) : settings.registrationEnabled ? (
+                    <RegisterForm />
+                  ) : (
+                    <p className="surface-3 rounded-md p-4 text-sm text-muted-foreground">
+                      Registration is currently closed on this site.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </Reveal>
@@ -91,6 +114,13 @@ export function AuthView({ mode }: { mode: Mode }) {
 }
 
 /* ---------------- Helpers ---------------- */
+
+/** "ShareBin" → ["Share", "Bin"]: accent the second word/camel-hump. */
+function splitBrand(name: string): [string, string] {
+  const m = /^(.+?)([A-Z][a-z0-9]*)$/.exec(name)
+  if (m && m[1]) return [m[1], m[2]]
+  return [name, '']
+}
 
 function TabButton({
   active,
@@ -283,54 +313,57 @@ function LoginForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4" noValidate>
-      {errors.form && <FormError message={errors.form} />}
+    <div className="space-y-4">
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        {errors.form && <FormError message={errors.form} />}
 
-      <FieldWrap id="login-email" label="Email" error={errors.email}>
-        <div className="relative">
-          <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <FieldWrap id="login-email" label="Email" error={errors.email}>
+          <div className="relative">
+            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="login-email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              aria-invalid={!!errors.email}
+              className={`${INPUT_CLASS} pl-9`}
+            />
+          </div>
+        </FieldWrap>
+
+        <FieldWrap id="login-password" label="Password" error={errors.password}>
           <Input
-            id="login-email"
-            type="email"
-            autoComplete="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            aria-invalid={!!errors.email}
-            className={`${INPUT_CLASS} pl-9`}
+            id="login-password"
+            type="password"
+            autoComplete="current-password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            aria-invalid={!!errors.password}
+            className={INPUT_CLASS}
           />
-        </div>
-      </FieldWrap>
+        </FieldWrap>
 
-      <FieldWrap id="login-password" label="Password" error={errors.password}>
-        <Input
-          id="login-password"
-          type="password"
-          autoComplete="current-password"
-          placeholder="••••••••"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          aria-invalid={!!errors.password}
-          className={INPUT_CLASS}
-        />
-      </FieldWrap>
+        <SubmitButton submitting={submitting} icon={<LogIn className="h-4 w-4" />}>
+          Log in
+        </SubmitButton>
 
-      <SubmitButton submitting={submitting} icon={<LogIn className="h-4 w-4" />}>
-        Log in
-      </SubmitButton>
+        <button
+          type="button"
+          onClick={() => setShowForgot((v) => !v)}
+          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-brand"
+        >
+          <KeyRound className="h-3 w-3" /> Forgot password?
+        </button>
+      </form>
 
-      <button
-        type="button"
-        onClick={() => setShowForgot((v) => !v)}
-        className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-brand"
-      >
-        <KeyRound className="h-3 w-3" /> Forgot password?
-      </button>
-
+      {/* Rendered outside the login <form>: nested forms are invalid HTML. */}
       {showForgot && <ForgotPasswordBlock onDone={() => setShowForgot(false)} />}
 
-      <DemoHint onFill={fillDemo} />
-    </form>
+      {SHOW_DEMO_HINT && <DemoHint onFill={fillDemo} />}
+    </div>
   )
 }
 
@@ -464,10 +497,12 @@ function RegisterForm() {
 
 /* ---------------- Forgot password ---------------- */
 
-function ForgotPasswordBlock({ onDone }: { onDone: () => void }) {
+function ForgotPasswordBlock({ onDone, initialToken }: { onDone: () => void; initialToken?: string }) {
   const [email, setEmail] = useState('')
-  const [stage, setStage] = useState<'request' | 'reset' | 'done'>('request')
-  const [token, setToken] = useState('')
+  // Arriving from an emailed link (#/reset?token=…) skips straight to the reset step.
+  const [stage, setStage] = useState<'request' | 'reset' | 'done'>(initialToken ? 'reset' : 'request')
+  const [token, setToken] = useState(initialToken || '')
+  const fromLink = !!initialToken
   const [newPassword, setNewPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -568,34 +603,38 @@ function ForgotPasswordBlock({ onDone }: { onDone: () => void }) {
         onSubmit={doReset}
         className="surface-3 space-y-3 rounded-md p-3"
       >
-        <div className="flex items-start gap-2 text-[11px] text-brand">
-          <span className="brand-dot mt-1 shrink-0" />
-          <span>
-            In production this would be emailed. Use this token to reset:
-          </span>
-        </div>
+        {!fromLink && (
+          <>
+            <div className="flex items-start gap-2 text-[11px] text-brand">
+              <span className="brand-dot mt-1 shrink-0" />
+              <span>
+                Development mode: the reset token is shown here instead of being emailed.
+              </span>
+            </div>
 
-        <div className="font-mono rounded bg-background/40 p-2 text-xs">
-          <div className="flex items-center gap-1">
-            <code className="flex-1 truncate text-muted-foreground">{token}</code>
-            <button
-              type="button"
-              onClick={copyToken}
-              className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-brand"
-              title="Copy token"
-            >
-              {copied ? (
-                <Check className="h-3 w-3 text-brand" />
-              ) : (
-                <Copy className="h-3 w-3" />
-              )}
-            </button>
-          </div>
-        </div>
+            <div className="font-mono rounded bg-background/40 p-2 text-xs">
+              <div className="flex items-center gap-1">
+                <code className="flex-1 truncate text-muted-foreground">{token}</code>
+                <button
+                  type="button"
+                  onClick={copyToken}
+                  className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-brand"
+                  title="Copy token"
+                >
+                  {copied ? (
+                    <Check className="h-3 w-3 text-brand" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
 
         {error && <ShakeError message={error} />}
 
-        <div className="space-y-1.5">
+        <div className={fromLink ? 'hidden' : 'space-y-1.5'}>
           <FieldLabel htmlFor="reset-token">Token</FieldLabel>
           <Input
             id="reset-token"

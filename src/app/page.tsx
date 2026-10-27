@@ -74,6 +74,8 @@ function ViewSwitcher() {
       return <AuthView mode="login" />
     case 'register':
       return <AuthView mode="register" />
+    case 'reset':
+      return <AuthView mode="reset" resetToken={view.token} />
     default:
       return <HomeView />
   }
